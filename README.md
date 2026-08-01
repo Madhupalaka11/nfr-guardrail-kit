@@ -176,7 +176,26 @@ nfr-guardrail-kit/
 │       ├── server.py            ← FastAPI console: history, SARIF, exports
 │       └── static/index.html    ← Release Gate SPA (vscode:// deep links)
 ├── vscode/
-│   └── tasks.json               ← VS Code task + Problems-panel matcher
-└── templates/
-    └── report_template.md       ← report output contract
-```
+
+commands to use -
+ ls -la ~/Downloads/nfr-scanner-update.zip
+
+cd ~/Downloads
+unzip -o nfr-scanner-update.zip -d nfr-scanner-update
+find nfr-scanner-update -type f
+
+cd ~/Downloads/nfr-guardrail-kit-main
+cp -v ~/Downloads/nfr-scanner-update/scanner/nfr_scan.py scanner/
+cp -v ~/Downloads/nfr-scanner-update/scanner/semantic/*.py scanner/semantic/
+cp -v ~/Downloads/nfr-scanner-update/scanner/engines/*.py scanner/engines/
+cp -v ~/Downloads/nfr-scanner-update/skill/rules/nfr_rules.yaml skill/rules/
+
+python3 -c "import yaml; print('rules:', len(yaml.safe_load(open('skill/rules/nfr_rules.yaml'))['rules']))"
+ls -la scanner/semantic/exceptions.py scanner/engines/adapters.py
+
+git add -A
+git commit -m "feat(scanner): exception/logging analyzer, span check, SCA/CVE scanning, Java complexity, engine adapters, backtracking fix, estate rules"
+git push origin main
+
+git ls-tree -r origin/main --name-only | grep -E "semantic|engines"
+

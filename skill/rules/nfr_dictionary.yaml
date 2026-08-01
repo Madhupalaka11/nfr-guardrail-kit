@@ -1,0 +1,139 @@
+# NFR Dictionary — every term: plain-English meaning + the metric it connects to.
+# Consumed by the console UI (/api/dictionary) and the Guardrail Assistant.
+terms:
+- term: SLO (Service Level Objective)
+  pillar: availability
+  plain: The reliability promise you set for yourselves — e.g. "99.9% of requests succeed". Alerts and priorities hang off it.
+  metric: "Tier targets: 99.99% / 99.9% / 99%"
+- term: SLI (Service Level Indicator)
+  pillar: observability
+  plain: The measured number behind an SLO — the actual success rate or latency you observe in production.
+  metric: Success rate %, latency p95
+- term: Error Budget
+  pillar: reliability
+  plain: The allowed amount of failure before you must stop shipping features and fix reliability. 99.9% target = 0.1% budget.
+  metric: "Budget burn rate; 99.9% ≈ 43 min/month"
+- term: Burn Rate
+  pillar: observability
+  plain: How fast you're spending the error budget right now. Multi-window burn-rate alerts catch both fast fires and slow leaks.
+  metric: 14.4x over 1h = page; 6x over 6h = page
+- term: MTTD (Mean Time To Detect)
+  pillar: observability
+  plain: How long from "it broke" to "we know it broke". Good telemetry shrinks this from users-telling-you to seconds.
+  metric: Minutes from failure to alert
+- term: MTTR (Mean Time To Recovery)
+  pillar: resilience
+  plain: How long from "we know" to "users are fine again". Modern SRE optimizes MTTR over MTBF — recover fast rather than never fail.
+  metric: Minutes to restore service
+- term: MTBF (Mean Time Between Failures)
+  pillar: reliability
+  plain: Average gap between failures. Useful, but in distributed systems failures are inevitable — pair it with MTTR thinking.
+  metric: Hours/days between incidents
+- term: p95 / p99 latency
+  pillar: performance
+  plain: The response time your slowest 5% / 1% of users see. Averages lie; percentiles show real user pain under load.
+  metric: "Targets: p95 < 100ms, p99 < 250ms"
+- term: Throughput (RPS/TPS)
+  pillar: performance
+  plain: How many requests or transactions the system handles per second. Capacity planning starts here.
+  metric: Requests/transactions per second
+- term: Circuit Breaker
+  pillar: resilience
+  plain: A guard around a dependency call — after enough failures it "trips" and fails fast instead of hammering a struggling service, then probes recovery (half-open).
+  metric: Failure-rate threshold ~50%, wait 30s
+- term: Bulkhead
+  pillar: resilience
+  plain: Ship-style compartments for resources — separate thread/connection pools per dependency so one slow service can't drown all the others.
+  metric: Pool isolation per dependency
+- term: Exponential Backoff + Jitter
+  pillar: resilience
+  plain: Retry waits grow (1s, 2s, 4s...) with randomness added, so thousands of clients don't retry in lockstep and DDoS your own system.
+  metric: "Max 3 retries; jitter desyncs clients"
+- term: Retry Storm
+  pillar: resilience
+  plain: Layered naive retries multiply — 3 retries at 3 layers turns 1 request into 27. Your own clients become the outage.
+  metric: "3×3×3 = 27 calls from 1 timeout"
+- term: Fail Fast
+  pillar: resilience
+  plain: A slow service is more dangerous than a dead one — it holds threads hostage. Return an error immediately rather than hanging.
+  metric: Timeout on every outbound call (2s/5s)
+- term: Graceful Degradation
+  pillar: resilience
+  plain: When a non-essential dependency dies, the core journey survives — Netflix shows "Popular Titles" when recommendations are down.
+  metric: Core-journey survival per dependency
+- term: SPoF (Single Point of Failure)
+  pillar: availability
+  plain: Any single component whose death takes the service down — one replica, one AZ, one load balancer. Eliminate or replicate.
+  metric: "replicas ≥ 2 across zones"
+- term: Failover
+  pillar: availability
+  plain: Automatic switch to a standby when the primary dies — a new leader is elected or traffic is rerouted.
+  metric: Failover time in seconds
+- term: RTO / RPO
+  pillar: availability
+  plain: Disaster-recovery promises — RTO is how fast you're back (time), RPO is how much data you may lose (time window of writes).
+  metric: "e.g. RTO 15 min, RPO 5 min"
+- term: Quorum
+  pillar: availability
+  plain: Requiring a majority of replicas to agree on reads/writes so a network split can't create two conflicting truths.
+  metric: "(N/2)+1 replicas must ack"
+- term: Idempotency
+  pillar: reliability
+  plain: Safe to repeat — sending the same request twice has the same effect as once. Mandatory wherever retries exist (payments!).
+  metric: Duplicate-request safety
+- term: Saga / Outbox Pattern
+  pillar: reliability
+  plain: Ways to keep DB writes and external calls consistent without one giant transaction — compensate on failure (saga) or publish events transactionally (outbox).
+  metric: Data-consistency incidents → 0
+- term: N+1 Query
+  pillar: performance
+  plain: One query for a list, then one more per row — 100 rows = 101 queries. Invisible in staging, murders the DB at scale.
+  metric: Queries per endpoint call
+- term: Cache Invalidation
+  pillar: performance
+  plain: Updating/evicting cached data when the source changes. A cache that only reads serves stale emails and prices weeks later.
+  metric: "Every @Cacheable paired with evict + TTL"
+- term: Connection Pool
+  pillar: reliability
+  plain: A fixed set of reusable DB connections. Default of 10 freezes the app at real traffic — size it from peak TPS × query time.
+  metric: "Pool = peak TPS × avg query time + headroom"
+- term: Canary Release
+  pillar: operability
+  plain: Ship to a small % of traffic first, watch the metrics, then roll wide — the blast radius of a bad release shrinks to the canary.
+  metric: "1–5% traffic first; auto-rollback on errors"
+- term: Blue-Green Deployment
+  pillar: operability
+  plain: Two identical environments; flip traffic to the new one, flip back instantly if it misbehaves. Rollback becomes a switch.
+  metric: Rollback in seconds
+- term: Kill Switch / Feature Flag
+  pillar: operability
+  plain: Toggle a risky feature off in production without redeploying — turns a 30-minute incident into a 30-second flip.
+  metric: MTTR via toggle vs redeploy
+- term: Distributed Tracing
+  pillar: observability
+  plain: Follow one request across every microservice it touches via propagated trace IDs — the map of causality when things break.
+  metric: Alert → trace → root cause in 1 hop
+- term: Correlation ID
+  pillar: observability
+  plain: A unique ID stamped on every log line of a request's journey, so you grep once instead of correlating timestamps for 40 minutes.
+  metric: Time-to-find failing request (30s vs 40min)
+- term: RUM (Real User Monitoring)
+  pillar: observability
+  plain: Telemetry from actual browsers — catches the white screens users see while backend dashboards stay green.
+  metric: User-facing MTTD
+- term: Chaos Engineering
+  pillar: resilience
+  plain: Deliberately injecting failure (killing pods, adding latency) to prove the resilience patterns actually work before reality tests them.
+  metric: Tested vs assumed failure modes
+- term: PRR (Production Readiness Review)
+  pillar: operability
+  plain: The structured gate before go-live — evidence that availability, resilience, security, and observability requirements are met or consciously waived.
+  metric: Sign-off by Tech Lead + SRE + Security
+- term: SARIF
+  pillar: operability
+  plain: A standard JSON format for static-analysis findings — export it and VS Code annotates every gap inline in the editor.
+  metric: Findings rendered at file:line in IDE
+- term: Bundle (Repo Bundle)
+  pillar: operability
+  plain: This console's local clone of every registered repo per tracked branch (develop/master/release), refreshed on each scan for branch-aware history.
+  metric: Branch drift — gaps develop vs release

@@ -1,0 +1,490 @@
+# Enterprise SRE Runbook Library - symptom -> detection -> resolution.
+# A runbook never executed is a document, not a control.
+runbooks:
+
+- id: RB01
+  category: Availability
+  severity: SEV1
+  title: "Service completely down - no successful requests"
+  summary: "All requests failing or timing out. Highest-urgency page."
+  symptoms:
+    - "Success rate at or near zero across all endpoints"
+    - "Health check endpoint failing or not responding"
+    - "Load balancer reporting no healthy targets"
+  detection:
+    - metric: "availability / success rate"
+      threshold: "< 50% for 2 min -> page immediately"
+    - metric: "healthy_target_count"
+      threshold: "= 0 -> page immediately"
+  immediate_actions:
+    - "Declare the incident and open the bridge. Do not investigate silently."
+    - "Assign roles now - incident commander, comms, investigator. One person cannot do all three."
+    - "Check the deploy timeline first. If a release landed in the last 30 minutes, roll back before diagnosing."
+    - "Confirm scope - one region or all, one service or the platform. This decides everything that follows."
+  diagnosis:
+    - "Are pods running or crash-looping? A crash loop points to config or a failed dependency at startup."
+    - "Is readiness failing? If readiness depends on a downstream that is down, the service removes itself needlessly."
+    - "Check resource saturation. Flat CPU with saturated pools means blocking I/O, not load."
+  resolution:
+    - "Deploy-related - roll back, confirm recovery, investigate the bad build offline."
+    - "Dependency-related - open the breaker manually if supported, or shed load to serve what you still can."
+    - "Resource-related - restart to clear saturation, then fix the bound before the next occurrence."
+  escalation:
+    - "No recovery in 15 minutes -> escalate to service owner and tower lead."
+    - "Customer-visible over 30 minutes -> engage major incident process and comms."
+  post_incident:
+    - "Blameless retrospective within 5 working days."
+    - "If time-to-detect exceeded 5 minutes, the top action item is an alert, not a code fix."
+  related_nfr: ['AVL-INF-001', 'AVL-INF-002', 'REL-BE-002']
+
+- id: RB02
+  category: Performance
+  severity: SEV2
+  title: "Latency degradation - p99 breaching SLO"
+  summary: "Service responding but too slowly. Often the precursor to a full outage."
+  symptoms:
+    - "p99 latency above SLO threshold while success rate remains healthy"
+    - "Queue depth or thread-pool utilisation climbing"
+    - "Downstream timeouts starting to appear"
+  detection:
+    - metric: "request duration p99"
+      threshold: "> SLO for 5 min -> ticket; > 2x SLO for 2 min -> page"
+    - metric: "thread_pool_busy / thread_pool_max"
+      threshold: "> 0.80 for 2 min -> page (saturation imminent)"
+  immediate_actions:
+    - "Treat as a pre-outage state. Latency saturation converts to unavailability quickly."
+    - "Determine local vs downstream. High CPU means local work; flat CPU with rising duration means waiting."
+    - "Check whether one endpoint or all are affected. One suggests a query path; all suggests a shared resource."
+  diagnosis:
+    - "Open a trace for a slow request and find the hop consuming the time."
+    - "Check GC pause time and frequency. Long pauses under load indicate heap pressure."
+    - "Check database - slow query log, lock waits, connection acquire time."
+  resolution:
+    - "Downstream slow - confirm timeouts bounded, open the breaker, serve the fallback."
+    - "Local CPU-bound - scale horizontally if the workload allows, profile the hot path after."
+    - "Heap/GC - restart to relieve pressure, then fix the allocation pattern. Restart buys time, not a fix."
+  escalation:
+    - "p99 above 2x SLO for 15 minutes -> escalate to service owner."
+    - "Error budget burn above 14.4x -> treat as SEV1 regardless of success rate."
+  post_incident:
+    - "Add a latency budget breakdown per hop if one does not exist."
+  related_nfr: ['PERF-BE-001', 'REL-BE-002', 'PERF-DB-001']
+
+- id: RB03
+  category: Resilience
+  severity: SEV1
+  title: "Thread pool exhaustion - service accepting no new work"
+  summary: "Worker threads all blocked. The classic cascade from a slow dependency."
+  symptoms:
+    - "Thread pool busy count flat at maximum"
+    - "CPU utilisation low despite total unresponsiveness"
+    - "Health checks timing out even though the process is alive"
+  detection:
+    - metric: "threads_busy / threads_max"
+      threshold: "> 0.90 for 1 min -> page"
+    - metric: "request queue depth"
+      threshold: "rising with flat CPU -> blocking I/O signature"
+  immediate_actions:
+    - "Identify which outbound call holds the threads. A thread dump shows them parked on the same socket read."
+    - "Do not simply raise the pool size during the incident - it buys seconds and enlarges the eventual failure."
+    - "If the culprit is non-critical, disable that path via feature flag or config if one exists."
+    - "Restart to clear the block once the cause is known, accepting it recurs until the timeout is fixed."
+  diagnosis:
+    - "Thread dump. Threads parked in socketRead identify the dependency by hostname."
+    - "Confirm whether that call has a read timeout. In most of these incidents it does not."
+    - "Apply Little's Law - arrival rate x time in system exceeded the pool size."
+  resolution:
+    - "Immediate - restart, then rate-limit or shed load if the dependency is still slow."
+    - "Permanent - connect and read timeouts (read = dependency p99 x 1.5), then a circuit breaker."
+    - "Verify the timeout chain: this service's timeout must be shorter than its caller's."
+  escalation:
+    - "Recurs after restart -> escalate; the dependency owner must be engaged."
+  post_incident:
+    - "Fully preventable. The action item is a timeout, plus a scan rule for the next unbounded call."
+  related_nfr: ['REL-BE-002', 'REL-BE-003']
+
+- id: RB04
+  category: Resilience
+  severity: SEV2
+  title: "Database connection pool exhausted"
+  summary: "Requests queuing on connection acquisition. Scarcer resource than threads."
+  symptoms:
+    - "Connection acquire wait time rising sharply"
+    - "Errors mentioning pool timeout or no available connection"
+    - "Database CPU normal while the application is stalled"
+  detection:
+    - metric: "db_pool_active / db_pool_max"
+      threshold: "> 0.85 for 2 min -> page"
+    - metric: "connection acquire wait"
+      threshold: "> 100ms sustained -> investigate"
+  immediate_actions:
+    - "Check for long-running or stuck queries holding connections."
+    - "Check whether a network call sits inside a transaction - the most common cause."
+    - "Look for connection leaks: acquired and never returned, usually a missing close in an error path."
+  diagnosis:
+    - "Query active sessions and duration. Long idle-in-transaction sessions confirm a leak or pinned connection."
+    - "Correlate pool exhaustion with downstream latency. Moving together means a call is inside the transaction."
+    - "Recalculate correct pool size via Little's Law, not intuition."
+  resolution:
+    - "Immediate - kill stuck sessions, restart the application to reset the pool."
+    - "Permanent - move external calls outside the transaction (Outbox/Saga), fix leaks, right-size the pool."
+    - "A bigger pool without fixing hold time just moves the failure to the database."
+  escalation:
+    - "Database CPU or IO also saturated -> engage the DBA team."
+  post_incident:
+    - "Add a standing panel correlating pool wait time with dependency latency."
+  related_nfr: ['REL-BE-001', 'REL-BE-005', 'PERF-DB-001']
+
+- id: RB05
+  category: Availability
+  severity: SEV2
+  title: "Dependency outage - downstream service unavailable"
+  summary: "A service you depend on is failing. Your job is containment, not repair."
+  symptoms:
+    - "Elevated errors isolated to code paths using one dependency"
+    - "Circuit breaker open, or would be if one existed"
+    - "Your error rate tracking the dependency 1:1 with no damping"
+  detection:
+    - metric: "dependency error rate"
+      threshold: "> 50% for 1 min -> breaker should open"
+    - metric: "circuitbreaker_state"
+      threshold: "state = OPEN -> ticket and notify"
+  immediate_actions:
+    - "Confirm it is the dependency and not your network path to it."
+    - "Contact the dependency owner early - do not spend 20 minutes proving it first."
+    - "Verify your fallback is actually serving. A fallback that rethrows is not a fallback."
+    - "Communicate degraded function rather than presenting it as a full outage if still partially serving."
+  diagnosis:
+    - "Is your retry configuration amplifying their outage? If so, back off."
+    - "Is the breaker open and damping load as intended?"
+    - "Which user journeys are affected and which still work? This drives comms."
+  resolution:
+    - "Ensure the breaker is open so calls fail fast and stop consuming your resources."
+    - "Serve cached or default data where the domain allows."
+    - "Queue writes for replay if the operation tolerates delay and is idempotent."
+  escalation:
+    - "Dependency outage over 30 minutes with customer impact -> major incident process."
+  post_incident:
+    - "If you had no breaker or no fallback, that is the action item - not their failure."
+  related_nfr: ['REL-BE-003', 'REL-BE-004']
+
+- id: RB06
+  category: Deployment
+  severity: SEV2
+  title: "Failed deployment - rollback procedure"
+  summary: "A release has degraded the service. Roll back first, diagnose after."
+  symptoms:
+    - "Error rate or latency step-change aligned to a deploy marker"
+    - "New exception types appearing in logs since the release"
+    - "Health checks failing on new pods only"
+  detection:
+    - metric: "5xx rate correlated with deploy timestamp"
+      threshold: "any significant post-deploy increase -> page"
+  immediate_actions:
+    - "Roll back. Do not diagnose a bad release in production while users are affected."
+    - "Stop the rollout immediately if still progressing, to limit blast radius."
+    - "Confirm recovery after rollback before standing down."
+  diagnosis:
+    - "Diff the release against the last good version - code, config, dependency versions."
+    - "Check whether migrations ran. A non-backward-compatible migration makes code rollback insufficient."
+    - "Reproduce in a lower environment with production-like load."
+  resolution:
+    - "Fix forward only when rollback is genuinely impossible, e.g. an irreversible migration."
+    - "For migrations follow expand/contract: never ship a schema the previous version cannot tolerate."
+  escalation:
+    - "Rollback fails or is not possible -> escalate immediately; this is a SEV1 shape."
+  post_incident:
+    - "Ask why testing missed it and whether canary would have limited exposure."
+  related_nfr: ['AVL-INF-002', 'OPS-INF-001']
+
+- id: RB07
+  category: Resilience
+  severity: SEV2
+  title: "Retry storm - self-inflicted load amplification"
+  summary: "Clients retrying aggressively are multiplying load on a struggling system."
+  symptoms:
+    - "Downstream request rate a multiple of genuine client rate"
+    - "Identical request ids appearing repeatedly within milliseconds"
+    - "Load spikes synchronised to failure events (thundering herd)"
+  detection:
+    - metric: "dependency RPS / client RPS"
+      threshold: "ratio > 1.5 -> page"
+    - metric: "retry rate as fraction of total"
+      threshold: "> 10% (retry budget) -> investigate"
+  immediate_actions:
+    - "Reduce or disable retries via configuration if changeable without deploy."
+    - "Open circuit breakers to stop amplification at source."
+    - "Rate-limit at the edge if the storm originates from clients you do not control."
+  diagnosis:
+    - "Count retry layers. Nested retries multiply: three layers of three is 27 calls per request."
+    - "Check for jitter. Without it, clients retry in lockstep and produce sawtooth load."
+    - "Confirm retried operations are idempotent - if not, you have corruption as well as load."
+  resolution:
+    - "Exponential backoff with jitter, max 3 attempts, retry budget near 10% of baseline."
+    - "Retry at exactly one layer in the chain, never nested."
+    - "Retry only idempotent operations with a stable idempotency key."
+  escalation:
+    - "Storm originates outside your control -> engage the client team and edge owners."
+  post_incident:
+    - "Add a dashboard panel for dependency RPS versus client RPS. The ratio makes this visible."
+  related_nfr: ['REL-BE-004', 'REL-BE-003']
+
+- id: RB08
+  category: Capacity
+  severity: SEV2
+  title: "Traffic spike - demand exceeding capacity"
+  summary: "Genuine load beyond provisioned capacity. Distinguish from a retry storm first."
+  symptoms:
+    - "Request rate materially above normal peak"
+    - "Saturation across multiple resources simultaneously"
+    - "Autoscaling at maximum, or not scaling fast enough"
+  detection:
+    - metric: "request rate versus rolling baseline"
+      threshold: "> 2x baseline for 5 min -> alert"
+    - metric: "replica count"
+      threshold: "= max replicas -> capacity ceiling reached"
+  immediate_actions:
+    - "Confirm it is real traffic, not retries or a bot. The response differs completely."
+    - "Scale out if headroom exists. Check the quota ceiling before assuming you can."
+    - "Shed load if you cannot scale - protect core journeys and degrade the rest deliberately."
+  diagnosis:
+    - "Identify the source - campaign, partner integration, scraping, attack."
+    - "Find the binding constraint. Scaling the app into a database ceiling makes it worse."
+  resolution:
+    - "Scale the constrained tier, not just the obvious one."
+    - "Apply rate limiting per client where appropriate."
+    - "Enable caching for read-heavy paths if it can be turned on safely."
+  escalation:
+    - "Suspected attack -> engage security immediately."
+    - "Quota ceiling reached -> engage platform team for an emergency increase."
+  post_incident:
+    - "Update the capacity model with the new observed peak; re-run headroom calculations."
+  related_nfr: ['PERF-BE-002', 'AVL-INF-001']
+
+- id: RB09
+  category: Data
+  severity: SEV1
+  title: "Data inconsistency - cross-system state divergence"
+  summary: "Two systems disagree about the same fact. Slow-bleeding and often invisible."
+  symptoms:
+    - "Reconciliation counts diverging between systems"
+    - "Customer reports of charged-but-missing or duplicated records"
+    - "Orphaned records with no matching counterpart"
+  detection:
+    - metric: "reconciliation delta between systems"
+      threshold: "any non-zero sustained delta -> page"
+  immediate_actions:
+    - "Stop the bleeding - pause the process creating inconsistency if still running."
+    - "Quantify scope: how many records, over what window, what customer impact."
+    - "Preserve evidence before remediating. Snapshot current state."
+    - "Engage finance/compliance early if money or regulated data is involved."
+  diagnosis:
+    - "Identify the dual-write. A local transaction plus a remote call cannot be atomic."
+    - "Determine which system is authoritative for the disputed fact."
+    - "Check whether retries without idempotency keys produced duplicates."
+  resolution:
+    - "Reconcile from the authoritative source with a reviewed, reversible script."
+    - "Compensate rather than delete where an audit trail matters."
+    - "Permanent fix - Saga/Outbox, idempotency keys, and a standing reconciliation check."
+  escalation:
+    - "Financial or regulated data affected -> escalate to compliance on discovery."
+  post_incident:
+    - "The critical action item is usually the reconciliation monitor, since it was found late."
+  related_nfr: ['REL-BE-005', 'REL-BE-004']
+
+- id: RB10
+  category: Resource
+  severity: SEV2
+  title: "Memory pressure / OOM kills"
+  summary: "Process running out of heap or container memory limit."
+  symptoms:
+    - "Pods restarting with OOMKilled status"
+    - "GC time rising, throughput falling"
+    - "Heap climbing and never returning to baseline after collection"
+  detection:
+    - metric: "container memory / limit"
+      threshold: "> 0.90 for 5 min -> page"
+    - metric: "GC time as fraction of wall clock"
+      threshold: "> 10% -> investigate"
+  immediate_actions:
+    - "Restart to restore service if pods are cycling."
+    - "Capture a heap dump before the restart if the incident allows - otherwise evidence is gone."
+    - "Raise the memory limit as a temporary measure only, with a ticket for the real cause."
+  diagnosis:
+    - "A leak shows a sawtooth that never returns to its starting baseline."
+    - "Look for unbounded collections, caches without eviction, unbounded query result sets."
+    - "Check whether a recent release changed allocation behaviour."
+  resolution:
+    - "Bound every cache with a maximum size and eviction policy."
+    - "Paginate queries - never load an unbounded result set into memory."
+    - "Right-size heap and container limits together; heap above the limit guarantees OOM kills."
+  escalation:
+    - "Leak unidentified within a day and restarts continue -> engage development formally."
+  post_incident:
+    - "Add a memory trend panel; leaks are visible days before they page."
+  related_nfr: ['PERF-BE-003', 'AVL-INF-003']
+
+- id: RB11
+  category: Security
+  severity: SEV1
+  title: "Credential exposure or leak"
+  summary: "A secret has been exposed. Rotate first, investigate second."
+  symptoms:
+    - "Secret found in source control, logs, or a config file"
+    - "Unexpected authentication from unknown sources"
+    - "Security tooling alert on exposed credential"
+  detection:
+    - metric: "secret scanner finding"
+      threshold: "any finding -> immediate response"
+  immediate_actions:
+    - "Rotate the credential immediately. Rotation is cheap, compromise is not."
+    - "Engage the security team at once. This is not a decision to make alone."
+    - "Preserve logs for forensics before anything is cleaned up."
+    - "Do not force-push to remove it from git history before security has the evidence."
+  diagnosis:
+    - "Determine exposure window - when committed, when detected, who had access."
+    - "Check access logs for use of the credential from unexpected sources."
+    - "Identify every system the credential could reach."
+  resolution:
+    - "Rotate, verify services recover, then remove from history under security guidance."
+    - "Move to a secret manager with short-lived dynamic credentials."
+    - "Add pre-commit and pipeline secret scanning so the next one never lands."
+  escalation:
+    - "Always escalate. Credential exposure is never handled quietly within one team."
+  post_incident:
+    - "Security-led review. The action item is the preventing control, not the rotation."
+  related_nfr: ['SEC-ALL-001', 'SEC-BE-002']
+
+- id: RB12
+  category: Security
+  severity: SEV2
+  title: "Certificate expiry"
+  summary: "TLS certificate expired or expiring. Entirely preventable and still common."
+  symptoms:
+    - "TLS handshake failures"
+    - "Clients reporting certificate errors"
+    - "Total failure at an exact timestamp with no deploy or load change"
+  detection:
+    - metric: "days until certificate expiry"
+      threshold: "< 30 days -> ticket; < 7 days -> page"
+  immediate_actions:
+    - "Confirm which certificate and which endpoints are affected."
+    - "Renew and deploy. Have the renewal path documented before you need it."
+    - "Check for other certificates expiring soon; they often expire together."
+  diagnosis:
+    - "Identify why monitoring did not catch it 30 days out. That absence is the real finding."
+  resolution:
+    - "Renew, deploy, verify the chain is complete including intermediates."
+    - "Automate renewal. Manual certificate management fails eventually, without exception."
+  escalation:
+    - "Customer-facing endpoint affected -> major incident comms."
+  post_incident:
+    - "The action item is automated renewal plus expiry alerting, not a calendar reminder."
+  related_nfr: ['SEC-INF-001']
+
+- id: RB13
+  category: Observability
+  severity: SEV3
+  title: "Monitoring or alerting failure - flying blind"
+  summary: "Telemetry pipeline is broken. Urgent because it hides everything else."
+  symptoms:
+    - "Dashboards showing no data or stale data"
+    - "Alert volume dropping to zero unexpectedly"
+    - "Traces incomplete or spans orphaned"
+  detection:
+    - metric: "metric ingestion rate"
+      threshold: "= 0 for 5 min -> page"
+    - metric: "heartbeat / dead-man's-switch"
+      threshold: "absence of expected heartbeat -> page"
+  immediate_actions:
+    - "Treat as urgent even though users are unaffected. You cannot detect a real incident while blind."
+    - "Verify whether the failure is collection, transport, or storage."
+    - "Fall back to direct inspection until restored."
+  diagnosis:
+    - "Check the agent or collector is running and not itself resource-starved."
+    - "Check for a quota or ingestion limit breach; these fail quietly."
+    - "Confirm whether a recent deploy removed instrumentation."
+  resolution:
+    - "Restore the pipeline; backfill where the platform supports it."
+    - "Add a dead-man's-switch alert firing on absence of data."
+  escalation:
+    - "Platform-wide telemetry loss -> engage the observability platform team."
+  post_incident:
+    - "Verify no real incident occurred during the blind window."
+  related_nfr: ['OBS-BE-002', 'OBS-BE-005']
+
+- id: RB14
+  category: Disaster Recovery
+  severity: SEV1
+  title: "Regional failover / DR invocation"
+  summary: "Primary region impaired. Executing failover under pressure."
+  symptoms:
+    - "Region-wide degradation confirmed by the cloud provider"
+    - "Multiple unrelated services failing in the same region"
+  detection:
+    - metric: "regional availability"
+      threshold: "multi-service failure in one region -> assess failover"
+  immediate_actions:
+    - "Confirm it is genuinely regional before failing over. Failover has its own risk."
+    - "Declare a major incident and assign a commander before touching anything."
+    - "Follow the documented DR runbook step by step. Do not improvise the sequence."
+    - "Verify replication lag before cutover - failing to a stale replica trades availability for data loss."
+  diagnosis:
+    - "Establish the provider's status and expected duration. A 10-minute blip may not warrant failover."
+    - "Determine RPO exposure from current replication lag."
+  resolution:
+    - "Execute failover, verify each tier in order, confirm traffic served from secondary."
+    - "Communicate expected data-loss window explicitly and early."
+    - "Plan failback deliberately; it is a second change with its own risk."
+  escalation:
+    - "Always a major incident. Executive comms required."
+  post_incident:
+    - "Compare actual RTO and RPO against documented targets. Gaps are the finding."
+  related_nfr: ['AVL-INF-004', 'DR-INF-001']
+
+- id: RB15
+  category: Process
+  severity: INFO
+  title: "On-call handover"
+  summary: "Transferring operational context between shifts without losing state."
+  symptoms: []
+  detection: []
+  immediate_actions:
+    - "Walk through open incidents and their current state, not just their existence."
+    - "Cover ongoing changes, freezes, and anything mid-deploy."
+    - "Flag known-fragile areas and anything being watched but not yet alerting."
+    - "Confirm the incoming engineer has working access to every tool before you leave."
+  diagnosis: []
+  resolution:
+    - "Handover is written as well as spoken. Verbal-only loses detail within an hour."
+    - "Include what was tried and did not work - that saves repeating it."
+  escalation:
+    - "Incoming engineer lacks access or context -> do not complete handover; escalate."
+  post_incident: []
+  related_nfr: ['OPS-ALL-001']
+
+- id: RB16
+  category: Process
+  severity: INFO
+  title: "Release gate - NFR readiness check before deploy"
+  summary: "The pre-release control this console exists to support."
+  symptoms: []
+  detection:
+    - metric: "open blocker findings for the release branch"
+      threshold: "> 0 unwaived -> gate holds"
+  immediate_actions:
+    - "Run the NFR scan on the release branch, not develop. Scan the branch you ship."
+    - "Review blockers with the service tech lead. Highs require an explicit waiver decision."
+    - "Check branch drift - a gap in release but not develop signals a merge problem."
+  diagnosis:
+    - "For each blocker, confirm it is real. Note the rule id for tuning if it is a false positive."
+    - "Confirm rollback has been tested for this release, not merely documented."
+  resolution:
+    - "Blockers fixed and rescanned, or waived with a named owner and expiry date."
+    - "Sign-off recorded - service tech lead, SRE lead, application owner, tower lead."
+    - "Attach the readiness report to the change record."
+  escalation:
+    - "Waiver for a Tier-1 blocker -> tower lead approval, not SRE discretion."
+  post_incident:
+    - "Track waiver expiry. An unrevisited waiver is how debt becomes permanent."
+  related_nfr: ['ALL']

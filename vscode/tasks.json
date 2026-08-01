@@ -1,0 +1,37 @@
+{
+  "//": "Copy to <workspace>/.vscode/tasks.json. Run with: Terminal > Run Task > NFR Guardrail Scan. Findings become clickable entries in the Problems panel — no Copilot/LLM involved.",
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "NFR Guardrail Scan",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "${workspaceFolder}/nfr-guardrail-kit/scanner/nfr_scan.py",
+        "${workspaceFolder}",
+        "--out", "${workspaceFolder}/.nfr-scan",
+        "--print-problems"
+      ],
+      "group": { "kind": "test", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": {
+        "owner": "nfr-guardrail",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "pattern": {
+          "regexp": "^(.+?):(\\d+): (error|warning|info): (.+)$",
+          "file": 1,
+          "line": 2,
+          "severity": 3,
+          "message": 4
+        }
+      }
+    },
+    {
+      "label": "NFR Guardrail: Open Report",
+      "type": "shell",
+      "command": "code",
+      "args": ["${workspaceFolder}/.nfr-scan/nfr_report.md"],
+      "problemMatcher": []
+    }
+  ]
+}

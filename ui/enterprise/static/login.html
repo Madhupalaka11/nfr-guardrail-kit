@@ -1,0 +1,76 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>NFR Guardrail - Sign In</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{--ivory:#FAF7F2;--ivory2:#F2EDE4;--ink:#1A1A2E;--muted:#5C6070;--jpm:#003087;--jpm2:#00468B;--line:#DDD8CF;--ok:#0E7A4E;--err:#C0392B;
+--sans:"IBM Plex Sans",-apple-system,"Segoe UI",Roboto,sans-serif;--mono:"IBM Plex Mono",ui-monospace,Consolas,monospace}
+*{box-sizing:border-box;margin:0}
+body{font-family:var(--sans);background:var(--ivory);color:var(--ink);min-height:100vh;display:flex;flex-direction:column}
+.bar{background:var(--jpm);padding:0 32px;height:52px;display:flex;align-items:center;gap:16px}
+.bar .logo{font-size:13px;font-weight:700;color:#fff;letter-spacing:.06em}
+.bar .dv{width:1px;height:20px;background:rgba(255,255,255,.25)}
+.bar .app{font-size:12px;color:#A8C0E0;letter-spacing:.04em}
+.main{flex:1;display:flex;align-items:center;justify-content:center;padding:40px 20px}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:40px 44px;width:100%;max-width:440px;box-shadow:0 4px 24px rgba(0,48,135,.09)}
+.ch{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--jpm);font-weight:700;margin-bottom:14px}
+h1{font-size:22px;font-weight:700;margin-bottom:6px}
+.sub{font-size:13px;color:var(--muted);margin-bottom:26px;line-height:1.55}
+label{display:block;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;margin-top:18px}
+label:first-of-type{margin-top:0}
+.hint{font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)}
+input{width:100%;padding:11px 14px;font-family:var(--sans);font-size:14px;border:1.5px solid var(--line);border-radius:7px;background:var(--ivory);color:var(--ink);outline:none}
+input:focus{border-color:var(--jpm);background:#fff}
+.pw{position:relative}
+.pw input{padding-right:70px;font-family:var(--mono);letter-spacing:.12em}
+.cnt{position:absolute;right:42px;top:50%;transform:translateY(-50%);font-family:var(--mono);font-size:11px;color:var(--muted)}
+.cnt.ok{color:var(--ok)}.cnt.er{color:var(--err)}
+.eye{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:0;cursor:pointer;font-size:15px}
+.btn{width:100%;margin-top:24px;padding:13px;background:var(--jpm);color:#fff;border:0;border-radius:7px;font-family:var(--sans);font-size:14px;font-weight:700;cursor:pointer}
+.btn:hover{background:var(--jpm2)}.btn:disabled{opacity:.55;cursor:wait}
+.err{margin-top:14px;background:#FDF0EF;border:1px solid #EEC7C4;border-radius:6px;padding:10px 14px;font-size:13px;color:var(--err);display:none}
+.ft{text-align:center;font-size:11.5px;color:var(--muted);margin-top:20px;line-height:1.7}
+.sec{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:9px;font-size:11px;color:var(--muted)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+.pf{background:var(--ivory2);border-top:1px solid var(--line);padding:12px 32px;font-size:11px;color:var(--muted);display:flex;justify-content:space-between}
+</style></head><body>
+<div class="bar"><span class="logo">NFR GUARDRAIL</span><span class="dv"></span><span class="app">Release Gate Console</span></div>
+<div class="main"><div class="card">
+<div class="ch">Secure Sign-In</div><h1>Welcome back</h1>
+<p class="sub">Sign in with your corporate domain credentials to access the console.</p>
+<form onsubmit="doLogin(event)" autocomplete="off">
+<label for="uid">Domain \ Network ID</label>
+<input id="uid" type="text" placeholder="DOMAIN\networkid" autocomplete="username" spellcheck="false">
+<div class="hint">Format: DOMAIN\your_network_id</div>
+<label for="pwd" style="margin-top:20px">Password</label>
+<div class="pw">
+<input id="pwd" type="password" placeholder="16-character password" maxlength="16" autocomplete="current-password" oninput="cp()">
+<span class="cnt" id="cnt">0/16</span>
+<button type="button" class="eye" onclick="tp()">&#128065;</button>
+</div>
+<div class="hint">Must be exactly 16 characters</div>
+<div class="err" id="err"></div>
+<button class="btn" id="bt" type="submit">Sign in securely</button>
+</form>
+<div class="ft">Sessions are encrypted and expire after 8 hours.<br>Never share your credentials.</div>
+<div class="sec"><span class="dot"></span>HttpOnly cookie &middot; HMAC-signed session</div>
+</div></div>
+<div class="pf"><span>NFR Guardrail Console &middot; Internal Use Only</span><span>Session timeout: 8 hours</span></div>
+<script>
+function cp(){const v=document.getElementById("pwd").value.length,e=document.getElementById("cnt");
+e.textContent=v+"/16";e.className="cnt "+(v===16?"ok":v>0?"er":"");}
+function tp(){const f=document.getElementById("pwd");f.type=f.type==="password"?"text":"password";}
+async function doLogin(ev){ev.preventDefault();
+const u=document.getElementById("uid").value.trim(),p=document.getElementById("pwd").value;
+const e=document.getElementById("err"),b=document.getElementById("bt");e.style.display="none";
+if(!u){e.textContent="Please enter your Domain\\Network ID.";e.style.display="block";return;}
+if(p.length!==16){e.textContent="Password must be exactly 16 characters.";e.style.display="block";return;}
+b.disabled=true;b.textContent="Signing in...";
+try{const r=await fetch("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},
+body:JSON.stringify({username:u,password:p})});
+if(r.ok){window.location.href="/";return;}
+const d=await r.json();e.textContent=d.detail||"Invalid credentials.";e.style.display="block";
+}catch(x){e.textContent="Connection error. Please retry.";e.style.display="block";}
+finally{b.disabled=false;b.textContent="Sign in securely";}}
+fetch("/api/auth/status").then(r=>r.json()).then(d=>{if(d.authenticated)window.location.href="/";});
+</script></body></html>

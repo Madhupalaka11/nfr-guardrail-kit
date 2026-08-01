@@ -1,0 +1,129 @@
+# SRE Copilot Prompt Library — paste-ready prompts for VS Code Copilot Chat.
+# Consumed by the console UI (/api/prompts). Use with the NFR Guardrail skill
+# + MCP server registered (.vscode/mcp.json). Prompts that don't need the MCP
+# server are marked standalone: true.
+prompts:
+- id: P01
+  title: Full NFR gap scan of this repo
+  when: Start of any release review — get the complete picture first.
+  prompt: |
+    Run a full NFR gap scan on this repository using the nfr-guardrail MCP server:
+    call scan_repo on the workspace root, then get_findings. Summarize the results
+    grouped by pillar with severity counts, then list every blocker and high finding
+    with file:line, why it matters in plain English, and the paste-ready fix.
+    Do NOT give a pass/fail verdict — findings and recommendations only.
+
+- id: P02
+  title: Explain and fix one specific finding
+  when: You have a rule id from the report and want the fix applied correctly here.
+  prompt: |
+    Using the nfr-guardrail MCP server, call explain_gap for rule <RULE-ID>.
+    Then open the affected file at <path>:<line>, explain in plain English why this
+    exact code is risky under production traffic, and propose the minimal diff that
+    fixes it following the rule's recommended pattern. Show the diff, do not apply
+    it until I confirm.
+
+- id: P03
+  title: Add timeout + circuit breaker to a service call
+  when: A finding flagged an unprotected outbound call (REL-BE-002 / REL-BE-003).
+  prompt: |
+    Find every outbound HTTP call in <file or package>. For each: add explicit
+    connect (2s) and read (5s) timeouts, wrap it with a Resilience4j
+    @CircuitBreaker (sliding window 20, failure rate 50%, wait 30s, half-open 3)
+    plus a fallback method that degrades gracefully instead of throwing raw errors.
+    Keep changes minimal, show config in application.yml, and explain each value.
+
+- id: P04
+  title: Transaction boundary review
+  when: Data-consistency risk — @Transactional mixing DB writes with external calls.
+  prompt: |
+    Review every @Transactional method in this repository. Flag any that perform
+    external calls (HTTP, messaging) inside the transaction. For each, propose a
+    split: DB writes inside the transaction, external calls outside, with an
+    explicit compensation path (saga or outbox) on failure. Explain what partial
+    state each current method can leave behind when the external call fails.
+
+- id: P05
+  title: Retry storm audit across the call chain
+  when: Multiple layers each have retry logic — check for multiplication.
+  prompt: |
+    Map every retry mechanism in this repo (annotations, loops, client config,
+    infra-level). Draw the call chain and compute the worst-case request
+    multiplication when the deepest dependency times out (e.g. 3×3×3=27).
+    Recommend which SINGLE layer should own retries, with exponential backoff +
+    jitter + a retry budget, and show the changes to remove the others.
+
+- id: P06
+  title: Cache invalidation audit
+  when: "@Cacheable findings — verify every cache has a write path."
+  prompt: |
+    List every @Cacheable in this repo. For each, find the corresponding write
+    path (update/delete) and verify a matching @CachePut/@CacheEvict exists with
+    the same cache name and key. Report unpaired caches as stale-data risks with
+    a concrete user-facing symptom, and generate the missing annotations plus a
+    sensible TTL.
+
+- id: P07
+  title: Upgrade logging for 3 AM debuggability
+  when: OBS-BE-001 findings — error logs without correlation context.
+  prompt: |
+    Find every log.error/log.warn in <package> that logs a bare message + exception.
+    Rewrite each to structured logging with the business identifiers available in
+    scope (ids, amounts, external transaction refs) as key=value pairs, and ensure
+    a correlation/trace ID is on the MDC for every request path. Show before/after
+    for each and flag any place where sensitive data must be masked.
+
+- id: P08
+  title: Harden Kubernetes manifests
+  when: AVL-INF / SEC-INF findings on deployment YAML.
+  prompt: |
+    Review every Deployment manifest in this repo. Apply: replicas >= 2,
+    readinessProbe on a dependency-aware /readyz, livenessProbe on /healthz,
+    resource requests/limits, securityContext.runAsNonRoot, a preStop sleep for
+    LB drain, and a PodDisruptionBudget. Output the full corrected YAML per file
+    with a one-line comment on each added block explaining the failure it prevents.
+
+- id: P09
+  title: Generate the PRR gap report from findings.json
+  when: Scan is done — produce the sign-off document for the release ticket.
+  prompt: |
+    Read .nfr-scan/findings.json. Produce an "NFR Gap Assessment" markdown report:
+    (1) 5-line executive summary with severity counts and top 3 risks in plain
+    English each paired with the metric it threatens, (2) a pillar matrix table,
+    (3) per-pillar deep-dive tables (Sev | Rule | Layer | Where | Why | Fix),
+    (4) fix sequencing ordered blockers-first with S/M/L effort, (5) a PRR
+    sign-off table for Tech Lead / SRE Lead / Security Lead with waiver tracking.
+    No pass/fail verdict anywhere.
+
+- id: P10
+  title: Explain branch drift for the release note
+  when: Develop and release scans differ — narrate what's heading to production.
+  prompt: |
+    Compare these two scan results (paste findings.json from develop and from the
+    release branch). List findings present on develop but not on release — that is
+    new NFR debt heading toward production. For each, state the rule, file:line,
+    severity, and a one-sentence plain-English risk. End with a short paragraph I
+    can paste into the release readiness note.
+
+- id: P11
+  title: Explain a pillar to a dev team (no scan needed)
+  when: Onboarding developers to the guardrail — teach one lens.
+  standalone: true
+  prompt: |
+    Explain the <PILLAR> pillar of our NFR guardrail to a development team in
+    10 minutes of reading: the objective in plain English, the production
+    failure stories that motivate it (slow-dependency thread exhaustion, retry
+    storms, stale caches — whichever apply), the concrete patterns we require,
+    and the metrics we track. Close with the 3 questions they should ask about
+    their own service.
+
+- id: P12
+  title: Pre-commit self-check before raising a PR
+  when: Developer self-service — catch gaps before the SRE gate does.
+  standalone: true
+  prompt: |
+    Review my staged changes (git diff --staged) against production-readiness
+    concerns: unbounded outbound calls, missing timeouts/breakers, transaction
+    boundaries around external calls, swallowed exceptions, logging without
+    context, cache writes without invalidation, SELECT * or eager fetches, and
+    any hardcoded secrets. Report findings with file:line and a minimal fix each.

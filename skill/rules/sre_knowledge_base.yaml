@@ -1,0 +1,336 @@
+# SRE Knowledge Base — reference material for the Guardrail console.
+# Every entry: plain-English guidance + the numbers an SRE actually needs.
+# Consumed by /api/kb and searchable in the Knowledge Base tab.
+entries:
+
+- id: KB01
+  category: Fundamentals
+  title: The Four Golden Signals
+  summary: The four things to measure for any user-facing system — if you can only monitor four things, monitor these.
+  body: |
+    LATENCY — how long requests take. Track p50/p95/p99 separately for successes
+    and failures (a fast error is not a healthy response). Alert on p99 breaching
+    the SLO threshold, not on averages.
+    TRAFFIC — demand on the system (RPS, TPS, concurrent sessions). Context for
+    every other signal: errors at 10 RPS and at 10,000 RPS are different incidents.
+    ERRORS — rate of failed requests: explicit (5xx), implicit (wrong content),
+    and policy failures (slower than SLO). Alert on error-budget burn rate.
+    SATURATION — how "full" the constrained resource is: connection pools, thread
+    pools, memory, disk, queue depth. Most cascading failures start as saturation.
+    Rule of thumb: alert on symptoms (user-facing signals), page on budget burn,
+    and keep cause-based alerts (CPU, GC) as tickets or dashboards, not pages.
+
+- id: KB02
+  category: Fundamentals
+  title: SLO math — downtime budgets at a glance
+  summary: What each availability target actually allows, and the burn-rate alerts that protect it.
+  body: |
+    TARGET      PER YEAR       PER MONTH     PER DAY
+    99%         3.65 days      7.3 hours     14.4 min
+    99.9%       8.77 hours     43.8 min      1.44 min
+    99.95%      4.38 hours     21.9 min      43 sec
+    99.99%      52.6 min       4.38 min      8.6 sec
+
+    Error budget = 1 - SLO. Spend it consciously: releases, experiments, and
+    incidents all draw from the same budget. Budget exhausted = feature freeze
+    until reliability is repaid.
+    Multi-window burn-rate alerting (Google SRE workbook standard):
+      PAGE:   14.4x burn over 1h  (2% of monthly budget in 1 hour)
+      PAGE:   6x    burn over 6h
+      TICKET: 3x    burn over 24h
+      TICKET: 1x    burn over 72h
+    Two windows per alert (long + 1/12th short) stop alerts firing after
+    recovery.
+
+- id: KB03
+  category: Governance
+  title: Service tiers and PRR enforcement
+  summary: The tier ladder this guardrail enforces — targets, budgets, and what each tier must prove at PRR.
+  body: |
+    TIER-1 CRITICAL (99.99%+, ≤52 min/yr): customer-facing money movement or
+    equivalent. PRR requires: multi-AZ active-active, tested failover, circuit
+    breakers on every dependency, multi-window burn-rate alerts, canary deploys,
+    quarterly chaos/DR exercises, zero blockers at release.
+    TIER-2 CORE (99.9%, ≤8.8 h/yr): important business services. PRR requires:
+    replicas ≥ 2, probes, timeouts + breakers on critical paths, tracing,
+    rollback plan, blockers fixed or formally waived with expiry.
+    TIER-3 INTERNAL (99%, ≤3.7 d/yr): internal tools and batch. PRR requires:
+    health endpoints, basic alerting, documented restore procedure.
+    Every waiver carries: rule id, justification, owner, expiry date. Expired
+    waivers block the next release automatically.
+
+- id: KB04
+  category: Incident Response
+  title: Incident severity matrix
+  summary: Shared SEV definitions so everyone means the same thing at 3 AM — response and comms cadence per level.
+  body: |
+    SEV1 — Critical user-facing outage or data loss in progress. Response: page
+    immediately, incident commander assigned, war room open. Comms: stakeholder
+    update every 30 min. Target MTTR: < 1 hour.
+    SEV2 — Major degradation (subset of users, key feature down, SLO burning
+    fast). Response: page on-call, IC optional. Comms: hourly updates.
+    SEV3 — Minor degradation, workaround exists, budget burn slow. Response:
+    business-hours fix. Comms: ticket + daily summary.
+    SEV4 — Cosmetic / no user impact / single alert with no symptom. Response:
+    backlog.
+    Two rules that save incidents: (1) mitigate first, diagnose second — restore
+    service, keep evidence, find root cause after; (2) anyone can raise severity,
+    only the IC lowers it.
+
+- id: KB05
+  category: Incident Response
+  title: The first 15 minutes on call
+  summary: A triage sequence that works for almost any page — from acknowledge to mitigation decision.
+  body: |
+    1. ACKNOWLEDGE (min 0-1): stop the escalation clock.
+    2. ASSESS BLAST RADIUS (1-5): who is affected, which tier, error rate and
+       since when. Dashboards first, logs second.
+    3. CHECK CHANGES (5-8): most incidents follow a change. Last deploys, flag
+       flips, config changes, infra events across the failing path.
+    4. MITIGATE (8-15): pick the fastest safe lever — rollback, kill switch,
+       traffic shift, scale out, restart. Rollback beats debugging in prod.
+    5. COMMUNICATE: one-line status to the incident channel: impact, suspected
+       cause, action in progress, next update time.
+    Then diagnose properly. Capture timestamps as you go — the postmortem
+    timeline writes itself.
+
+- id: KB06
+  category: Incident Response
+  title: Blameless postmortem template
+  summary: The structure that turns an incident into prevention — focused on systems, not people.
+  body: |
+    1. SUMMARY: impact in user terms, duration, severity, tier.
+    2. TIMELINE: detection → escalation → mitigation → resolution, with
+       timestamps. Note MTTD and MTTR explicitly.
+    3. ROOT CAUSE: the system conditions that allowed it (5 whys) — never a
+       person's name. "Engineer deployed bad config" becomes "config had no
+       validation gate and no canary".
+    4. WHAT WENT WELL / WHAT HURT: detection speed, runbook quality, tooling
+       gaps, alert noise.
+    5. ACTION ITEMS: each with owner + due date + type (prevent / detect /
+       mitigate). Prevention items map back to guardrail rules where possible —
+       if the scanner could have caught it, add the rule.
+    6. BUDGET IMPACT: error budget consumed, remaining runway.
+
+- id: KB07
+  category: Resilience Patterns
+  title: Defensive patterns cheat sheet
+  summary: The five patterns with starting-point configs — when to use each and what it protects.
+  body: |
+    TIMEOUT (always, every outbound call): connect 2s / read 5s to start; tune
+    from dependency p99. Protects: thread pools from slow dependencies.
+    RETRY + BACKOFF + JITTER (transient failures only): max 3 attempts, 1s/2s/4s
+    + random jitter, retry budget ~10% of traffic. Never retry non-idempotent
+    calls without an idempotency key. Protects: recovery of the failing service.
+    CIRCUIT BREAKER (every external dependency): sliding window 20 calls,
+    failure rate 50%, open 30s, half-open 3 probes. Protects: fast failure and
+    dependency recovery.
+    BULKHEAD (shared runtimes calling multiple dependencies): separate thread /
+    connection pools per dependency. Protects: one slow dependency from
+    consuming everything.
+    FALLBACK / GRACEFUL DEGRADATION (non-essential dependencies): cached answer,
+    default content, queued write. Protects: the core user journey.
+    Order of adoption when starting from zero: timeouts → breakers → fallbacks →
+    smart retries → bulkheads.
+
+- id: KB08
+  category: Observability
+  title: Logs, metrics, traces — the triangle
+  summary: What each telemetry type answers and the one-hop debugging standard to aim for.
+  body: |
+    METRICS answer "is something wrong?" — cheap, aggregatable, alertable.
+    LOGS answer "what exactly happened?" — discrete events with full context.
+    TRACES answer "where in the chain?" — one request's journey across services.
+    The standard to aim for: alert (metric) → click into trace → jump to the
+    exact logs of the failing span, in one hop, using a shared correlation ID.
+    Practical bar for every service:
+    - Every log line carries trace/correlation ID + business identifiers.
+    - RED metrics per endpoint (Rate, Errors, Duration) + pool saturation.
+    - Trace sampling: 100% of errors, 1-10% of successes.
+    - Frontend RUM so browser failures are visible before tickets arrive.
+
+- id: KB09
+  category: Release Engineering
+  title: Progressive delivery — canary and rollback discipline
+  summary: How releases stop being scary — traffic-sliced rollout with automatic retreat.
+  body: |
+    CANARY: route 1-5% of traffic to the new version. Watch error rate, p99, and
+    saturation against the stable cohort for at least one traffic cycle. Promote
+    in steps (5% → 25% → 50% → 100%); auto-rollback on SLO breach.
+    BLUE-GREEN: two identical stacks, instant traffic flip, instant flip back.
+    Costs double capacity during the window; buys seconds-level rollback.
+    FEATURE FLAGS: decouple deploy from release. Risky paths ship dark, enable
+    gradually, kill instantly. MTTR via toggle ≈ 30 seconds vs redeploy ≈ 30 min.
+    DB MIGRATIONS: expand/contract only — add nullable column, dual-write,
+    backfill, switch reads, drop later. Never a breaking migration in the same
+    release as the code that needs it; rollback must always be possible.
+
+- id: KB10
+  category: Release Engineering
+  title: PRR quick checklist
+  summary: The 12 questions to walk before any production release — the human companion to the automated scan.
+  body: |
+    1. Scan run on the release branch, blockers fixed or waived with expiry?
+    2. SLO defined and dashboarded for this service's tier?
+    3. Burn-rate alerts wired to the on-call rotation?
+    4. Every outbound call has a timeout? Breakers on critical dependencies?
+    5. replicas ≥ 2, probes present, resources set, PDB in place?
+    6. Rollback rehearsed — and completes in under 10 minutes?
+    7. Kill switch for the riskiest new path?
+    8. DB migration reversible (or expand/contract)?
+    9. Runbook updated — top 3 failure modes with mitigation steps?
+    10. Logs carry correlation IDs; traces flowing to the APM?
+    11. Secrets from the vault, none in the repo (scan confirms)?
+    12. On-call knows this release is going out, and when?
+
+- id: KB11
+  category: Capacity & Performance
+  title: Sizing the usual suspects
+  summary: Starting formulas for the three pools everyone undersizes — connection pools, threads, and JVM heap.
+  body: |
+    DB CONNECTION POOL: pool = peak TPS x avg query seconds + headroom.
+    200 TPS x 0.05s = 10 busy connections → pool 25-50. Default of 10 is a
+    production freeze waiting for traffic. Also: pool ≤ DB max_connections /
+    instance count.
+    HTTP/WORKER THREADS: threads = target concurrency = peak RPS x avg response
+    seconds. 500 RPS x 0.2s = 100 concurrent → tomcat threads 200 with headroom.
+    If threads >> this, you're masking a slow dependency, not adding capacity.
+    JVM HEAP: start at 50-75% of container limit; leave room for metaspace,
+    threads, and off-heap. Alert on Full GC frequency and pause p99, not on
+    heap % alone.
+    Load-test at 2x expected peak before Tier-1/Tier-2 go-live — the first
+    saturation point found in a test costs nothing; found in production it
+    costs an incident.
+
+- id: KB12
+  category: Capacity & Performance
+  title: Reading p95/p99 like an SRE
+  summary: Why averages lie and percentiles tell the truth — and the traps in percentile math.
+  body: |
+    An average of 80ms can hide 5% of users waiting 2 seconds. Percentiles show
+    the experience of your unluckiest users — who are often your heaviest users.
+    Traps worth knowing:
+    - You cannot average percentiles across instances. Aggregate histograms,
+      then compute the percentile.
+    - p99 of each microservice compounds: a request touching 10 services each
+      at p99=100ms will breach 100ms far more than 1% of the time. Budget
+      latency per hop.
+    - Watch p99 during deploys and GC — that is where regressions appear first,
+      long before averages move.
+    Set SLOs on percentiles (p95 < 100ms, p99 < 250ms) and alert on sustained
+    breach, not single spikes.
+
+- id: KB13
+  category: Guardrail Product
+  title: How this guardrail fits the workflow
+  summary: The operating model — who runs what, when, and where the human stays in charge.
+  body: |
+    DAILY: developers self-check with Copilot prompt P12 before raising PRs.
+    PER RELEASE: SRE runs the scan (console or Copilot P01) on the release
+    branch. Gaps → Recommendations tab → fix plan attached to the ticket.
+    Blockers fixed or waived with expiry. Report + optional Deep Analysis
+    stored with the scan.
+    WEEKLY: sync & scan all bundle repos across develop/master/release; watch
+    the branch-drift callouts — new debt on develop is next month's release
+    risk.
+    QUARTERLY: History tab trend per portfolio → NFR debt narrative for
+    leadership; expired waivers reviewed.
+    ALWAYS: the guardrail identifies, humans decide. No pass/fail verdicts —
+    the PRR sign-off matrix (Tech Lead, SRE Lead, Security Lead) owns the
+    release decision.
+
+- id: KB14
+  category: Fundamentals
+  title: DR drills — proving RTO and RPO
+  summary: A recovery objective you have never rehearsed is a hope, not a number — how to drill it.
+  body: |
+    RTO (Recovery Time Objective): how fast service is restored. RPO (Recovery
+    Point Objective): how much data you may lose (the window of unreplicated
+    writes). Both are promises to the business — verify them like code.
+    Drill ladder, easiest to hardest:
+    1. TABLETOP: walk the runbook aloud; time each step on paper.
+    2. RESTORE TEST: restore last night's backup to an isolated environment;
+       measure actual restore time and data gap. Most teams fail here first.
+    3. COMPONENT FAILOVER: kill one dependency (DB primary, one AZ) in
+       non-prod; verify automatic failover and measure it.
+    4. GAME DAY: scheduled, announced production exercise with rollback ready.
+    Record measured RTO/RPO vs promised after every drill; a widening gap is a
+    leadership escalation, not a footnote. Tier-1 drills quarterly, Tier-2
+    twice a year, Tier-3 annually.
+
+- id: KB15
+  category: Observability
+  title: Alert hygiene — fighting fatigue
+  summary: Every page must be actionable, urgent, and novel — the discipline that keeps on-call humane and alerts trusted.
+  body: |
+    The test for a PAGE: a human must act NOW and the action is not
+    automatable. Everything else is a ticket or a dashboard line.
+    Hygiene rules:
+    - Symptom-based paging (SLO burn, user errors), cause-based ticketing
+      (CPU, disk, GC). Causes without symptoms can wait for morning.
+    - Every alert links a runbook. No runbook, no page.
+    - Dedupe and group: one incident = one page, not forty.
+    - Auto-resolve alerts when the condition clears; stale alerts train
+      people to ignore the channel.
+    - Review weekly: top noisy alerts by count; each one gets fixed, tuned,
+      or deleted. Track pages-per-shift — sustained > 2/shift means the
+      rotation is burning out and reliability work must be prioritized.
+    A silent pager on a healthy system is the goal; a noisy pager on a
+    healthy system is a reliability bug with a human cost.
+
+- id: KB16
+  category: Observability
+  title: Dashboard standards that scale
+  summary: One layout for every service so any SRE can read any dashboard in 10 seconds during an incident.
+  body: |
+    Standard top-to-bottom layout (the incident reading order):
+    ROW 1 — SLO status: budget remaining, burn rate, current availability.
+    ROW 2 — Golden signals: RED per endpoint (Rate, Errors, Duration p95/p99).
+    ROW 3 — Saturation: pools (DB/HTTP threads), queue depths, memory, GC.
+    ROW 4 — Dependencies: per-dependency error rate, latency, breaker state.
+    ROW 5 — Releases: deploy markers overlaid on every chart above.
+    Conventions: UTC everywhere; same color = same meaning across services
+    (errors red, latency amber, traffic blue); every panel titled with the
+    question it answers ("Are we burning budget?"), not the metric name;
+    percentiles labeled explicitly. One overview dashboard per service, one
+    drill-down per subsystem — not twelve dashboards nobody trusts.
+
+- id: KB17
+  category: Release Engineering
+  title: Change discipline — freezes, windows, and CFR
+  summary: Most incidents follow a change — the calendar and metrics that keep change risk visible.
+  body: |
+    Track the four DORA metrics per service: deployment frequency, lead time,
+    change failure rate (CFR), and MTTR. CFR = % of deploys causing a
+    rollback, hotfix, or incident; > 15% sustained means the pipeline needs
+    investment before the roadmap does.
+    Change windows: Tier-1 deploys inside business hours with full on-call
+    coverage — "Friday 6 PM" is how legends of bad weekends are written.
+    Freeze periods (quarter-end, major business events): only emergency
+    changes, each with named approver and rollback plan.
+    Emergency change ≠ uncontrolled change: same rigor, compressed timeline,
+    retro within 48 h.
+    Every deploy emits a marker into observability (who, what, when, link to
+    the change record) — the first question in any incident is "what
+    changed?", and the dashboard should answer it without asking around.
+
+- id: KB18
+  category: Governance
+  title: FinOps for SRE — reliability per dollar
+  summary: Capacity and resilience cost money — the unit-economics view that makes reliability spend defensible.
+  body: |
+    Track cost per unit of work (per 1k requests, per transaction), not raw
+    spend — growth hides efficiency and shrinkage hides waste.
+    The usual savings without hurting SLOs:
+    - Right-size from p95 usage, not peak-ever: requests at p95 + headroom;
+      review quarterly.
+    - Autoscale on real saturation signals, floor at the redundancy minimum
+      (never below 2 for Tier-1/2).
+    - Kill zombie capacity: idle non-prod at night, orphaned volumes,
+      forgotten load-test stacks.
+    - Storage tiering and log retention aligned to the audit requirement,
+      not "forever".
+    The reliability trade is explicit: multi-AZ active-active costs ~2x —
+    justified by Tier-1 downtime cost, wasteful for Tier-3. Put the number
+    next to the tier: "this 99.99% costs X/month; 99.9% would cost Y" makes
+    the SLA conversation honest in both directions.

@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+server.log
+server.pid
+*.bak
+ui/enterprise/console.db
+ui/enterprise/bundle/
+llm_config.json
+.nfr-scan/

@@ -1,0 +1,98 @@
+<svg viewBox="0 0 1160 760" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <linearGradient id="hdr" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0f172a"/><stop offset="1" stop-color="#1e3a5f"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1160" height="760" fill="#f8fafc"/>
+  <rect x="0" y="0" width="1160" height="64" fill="url(#hdr)"/>
+  <text x="30" y="40" fill="#ffffff" font-size="24" font-weight="700">NFR Guardrail Kit — Architecture</text>
+  <text x="820" y="40" fill="#94a3b8" font-size="14">SRE Gatekeeper for Production Readiness</text>
+
+  <!-- Rule pack -->
+  <rect x="380" y="92" width="400" height="86" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+  <text x="580" y="122" text-anchor="middle" font-size="16" font-weight="700" fill="#92400e">RULE PACK — nfr_rules.yaml</text>
+  <text x="580" y="144" text-anchor="middle" font-size="12" fill="#78350f">Single source of truth · 7 pillars × 4 layers (FE / BE / DB / Infra)</text>
+  <text x="580" y="162" text-anchor="middle" font-size="12" fill="#78350f">Each rule: Why (plain English + metric) · Detection · Paste-ready fix</text>
+
+  <!-- Run mode 1 -->
+  <rect x="40" y="240" width="300" height="150" rx="10" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+  <text x="190" y="268" text-anchor="middle" font-size="15" font-weight="700" fill="#1e3a8a">RUN MODE 1</text>
+  <text x="190" y="290" text-anchor="middle" font-size="13" fill="#1e40af">VS Code + Copilot Agent</text>
+  <text x="190" y="312" text-anchor="middle" font-size="12" fill="#1e40af">skill/SKILL.md (2-phase workflow)</text>
+  <text x="190" y="334" text-anchor="middle" font-size="12" fill="#1e40af">Phase 2: LLM deep analysis —</text>
+  <text x="190" y="352" text-anchor="middle" font-size="12" fill="#1e40af">txn boundaries · retry storms · N+1</text>
+  <text x="190" y="370" text-anchor="middle" font-size="12" fill="#1e40af">graceful degradation · SLO fitness</text>
+
+  <!-- MCP -->
+  <rect x="40" y="430" width="300" height="130" rx="10" fill="#ede9fe" stroke="#7c3aed" stroke-width="2"/>
+  <text x="190" y="458" text-anchor="middle" font-size="15" font-weight="700" fill="#5b21b6">CUSTOM MCP SERVER</text>
+  <text x="190" y="480" text-anchor="middle" font-size="12" fill="#6d28d9">LLM ↔ Ecosystem bridge (audited)</text>
+  <text x="190" y="500" text-anchor="middle" font-size="11" fill="#6d28d9">scan_repo · get_findings · explain_gap</text>
+  <text x="190" y="518" text-anchor="middle" font-size="11" fill="#6d28d9">list_rules · get_prr_signoff_template</text>
+  <text x="190" y="540" text-anchor="middle" font-size="11" fill="#6d28d9">＋ later: Splunk · Datadog · CMDB tools</text>
+
+  <!-- Scan engine -->
+  <rect x="430" y="270" width="300" height="170" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="2.5"/>
+  <text x="580" y="300" text-anchor="middle" font-size="15" font-weight="700" fill="#14532d">SCAN ENGINE — nfr_scan.py</text>
+  <text x="580" y="322" text-anchor="middle" font-size="12" fill="#166534">Deterministic · read-only · reproducible</text>
+  <text x="580" y="344" text-anchor="middle" font-size="12" fill="#166534">Walks the full repo: frontend, backend,</text>
+  <text x="580" y="362" text-anchor="middle" font-size="12" fill="#166534">database, K8s/infra manifests, CI config</text>
+  <text x="580" y="388" text-anchor="middle" font-size="12" font-weight="600" fill="#166534">Outputs (file:line evidence):</text>
+  <text x="580" y="408" text-anchor="middle" font-size="12" fill="#166534">findings.json  +  nfr_report.md</text>
+
+  <!-- Run mode 2 -->
+  <rect x="820" y="240" width="300" height="150" rx="10" fill="#ffe4e6" stroke="#e11d48" stroke-width="2"/>
+  <text x="970" y="268" text-anchor="middle" font-size="15" font-weight="700" fill="#881337">RUN MODE 2</text>
+  <text x="970" y="290" text-anchor="middle" font-size="13" fill="#9f1239">Streamlit Gatekeeper Console (ui/app.py)</text>
+  <text x="970" y="312" text-anchor="middle" font-size="12" fill="#9f1239">SRE points at any cloned repo</text>
+  <text x="970" y="334" text-anchor="middle" font-size="12" fill="#9f1239">Filter by pillar / severity · expand fixes</text>
+  <text x="970" y="356" text-anchor="middle" font-size="12" fill="#9f1239">Download report for the PRR ticket</text>
+
+  <!-- Target repo -->
+  <rect x="820" y="440" width="300" height="110" rx="10" fill="#f1f5f9" stroke="#64748b" stroke-width="2" stroke-dasharray="6 4"/>
+  <text x="970" y="470" text-anchor="middle" font-size="14" font-weight="700" fill="#334155">TARGET REPOSITORY</text>
+  <text x="970" y="492" text-anchor="middle" font-size="12" fill="#475569">Any env — SREs already have access</text>
+  <text x="970" y="512" text-anchor="middle" font-size="12" fill="#475569">Never modified · outputs → .nfr-scan/</text>
+  <text x="970" y="532" text-anchor="middle" font-size="12" fill="#475569">FE · BE · DB · Infra · CI/CD</text>
+
+  <!-- Report -->
+  <rect x="380" y="600" width="400" height="120" rx="10" fill="#0f172a"/>
+  <text x="580" y="632" text-anchor="middle" font-size="15" font-weight="700" fill="#ffffff">NFR GAP ASSESSMENT REPORT</text>
+  <text x="580" y="656" text-anchor="middle" font-size="12" fill="#cbd5e1">Why → What → Where (file:line) → How to fix</text>
+  <text x="580" y="676" text-anchor="middle" font-size="12" fill="#cbd5e1">Exec summary · pillar matrix · fix sequencing</text>
+  <text x="580" y="700" text-anchor="middle" font-size="12" font-weight="600" fill="#fbbf24">No pass/fail verdict → PRR sign-off decides</text>
+
+  <!-- PRR -->
+  <rect x="850" y="614" width="270" height="92" rx="10" fill="#fff7ed" stroke="#ea580c" stroke-width="2"/>
+  <text x="985" y="644" text-anchor="middle" font-size="14" font-weight="700" fill="#9a3412">PRR SIGN-OFF</text>
+  <text x="985" y="666" text-anchor="middle" font-size="12" fill="#c2410c">Tech Lead · SRE Lead · Security Lead</text>
+  <text x="985" y="686" text-anchor="middle" font-size="12" fill="#c2410c">Waiver tracking (rule id + expiry)</text>
+
+  <!-- Arrows -->
+  <line x1="480" y1="178" x2="300" y2="240" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="580" y1="178" x2="580" y2="270" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="680" y1="178" x2="870" y2="240" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <line x1="190" y1="390" x2="190" y2="430" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="200" y="415" font-size="11" fill="#6d28d9">MCP tool calls (.vscode/mcp.json)</text>
+
+  <line x1="340" y1="480" x2="430" y2="420" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="330" y="450" font-size="11" fill="#475569">subprocess</text>
+
+  <line x1="820" y1="330" x2="730" y2="340" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="742" y="322" font-size="11" fill="#475569">runs scan</text>
+
+  <line x1="730" y1="400" x2="885" y2="447" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="748" y="432" font-size="11" fill="#475569">reads (read-only)</text>
+
+  <line x1="580" y1="440" x2="580" y2="600" stroke="#475569" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <line x1="240" y1="390" x2="450" y2="606" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="270" y="530" font-size="11" fill="#2563eb">Phase-2 enriched findings</text>
+
+  <line x1="780" y1="660" x2="850" y2="660" stroke="#475569" stroke-width="2.5" marker-end="url(#arrow)"/>
+</svg>

@@ -1,0 +1,441 @@
+# =====================================================================
+# NFR Guardrail Rule Pack  v1.0
+# Single source of truth consumed by: nfr_scan.py, SKILL.md, MCP server
+# ---------------------------------------------------------------------
+# Rule schema:
+#   id        : unique rule id  (PILLAR-LAYER-NNN)
+#   pillar    : availability | reliability | performance | resilience |
+#               security | observability | operability
+#   layer     : frontend | backend | database | infra
+#   title     : short human name
+#   why       : plain-English risk + the production metric it hits
+#   detect    : how the deterministic scanner finds it
+#     type    : absent  -> "required" regex must exist in files matching globs;
+#                          gap raised if NO file contains it
+#               present -> "pattern" regex is an anti-pattern; gap raised
+#                          PER FILE where it is found
+#     globs   : file globs the rule applies to
+#     applies_if : (optional) repo-level regex gate — rule only runs if some
+#                  file matching its glob contains this (tech detection)
+#   severity  : blocker | high | medium | low
+#   fix       : concrete remediation guidance (paste-ready where possible)
+# =====================================================================
+
+# Pillar metadata — powers the "NFR Lens" modules in the console UI.
+pillars:
+  availability:
+    name: Availability & High Availability
+    objective: Keep the service reachable and serving users even when components, nodes, or zones fail — and during every deploy.
+    what_it_checks: Replica counts and SPoFs, readiness/liveness probes, resource requests/limits, rollback paths for DB migrations, disruption tolerance.
+    key_metrics: [Uptime % vs tier target, Failover time, Deploy-time error rate, MTBF]
+    sre_lens: "If one pod, one node, or one AZ dies right now — does the user notice?"
+  reliability:
+    name: Reliability
+    objective: The system does the right thing, consistently — no partial writes, no silent failures, no lying success responses.
+    what_it_checks: Connection-pool sizing, transaction boundaries vs external calls, swallowed exceptions, data-consistency hazards.
+    key_metrics: [Error rate, Failure rate over time, Data-consistency incidents, SLA compliance]
+    sre_lens: "When something fails mid-flow, is the state correct and does anyone know it failed?"
+  performance:
+    name: Performance & Latency
+    objective: Stay fast at real traffic — p95/p99, not the happy path in staging.
+    what_it_checks: Query shape (SELECT *, N+1 / eager fetch), cache invalidation pairing, bundle-size budgets, resource hot spots.
+    key_metrics: [p95 < 100ms / p99 < 250ms targets, Throughput (RPS/TPS), DB query time, Cache hit %]
+    sre_lens: "What breaks first when traffic is 10x — and would we see it coming?"
+  resilience:
+    name: Resilience & Defensive Architecture
+    objective: Failures happen — contain the blast radius and recover fast instead of cascading. Shift the mindset from MTBF to MTTR.
+    what_it_checks: Timeouts on every outbound call, circuit breakers, retry with backoff + jitter (no retry storms), bulkheads, graceful degradation.
+    key_metrics: [MTTR, Blast radius (services affected per incident), Error-budget burn rate, Cascade incidents]
+    sre_lens: "A dependency turns slow (worse than down) — do we fail fast or exhaust every thread?"
+  security:
+    name: Security & Governance
+    objective: No secrets in code, no injection paths, least privilege everywhere — audit-ready by construction.
+    what_it_checks: Hardcoded credentials, SQL built by concatenation, XSS surfaces (innerHTML), containers running as root.
+    key_metrics: [Security incidents, Audit findings, Time-to-patch, Secrets exposure window]
+    sre_lens: "If this repo leaked publicly today, what would the attacker have?"
+  observability:
+    name: Observability & Telemetry
+    objective: When it breaks at 3 AM, go from alert to root cause in one hop — logs, metrics, and traces that triangulate.
+    what_it_checks: Log context (correlation IDs vs bare "failed" messages), distributed tracing instrumentation, health endpoints, frontend RUM.
+    key_metrics: [MTTD, MTTR, Alert → trace → query hops, Trace coverage %]
+    sre_lens: "Can on-call find the exact failing request in 30 seconds — or 40 minutes of grep?"
+  operability:
+    name: Deployment & Operability
+    objective: Releases are boring — zero-drama deploys, instant kill switches, rollback measured in seconds.
+    what_it_checks: Graceful shutdown (in-flight request draining), feature flags / kill switches, preStop hooks.
+    key_metrics: [Deploy-time error rate, Rollback time, Change failure rate, MTTR via kill switch]
+    sre_lens: "Bad release at peak hour — is recovery a toggle or a rebuild-and-redeploy?"
+
+rules:
+
+# ----------------------- RELIABILITY / BACKEND -----------------------
+- id: REL-BE-001
+  pillar: reliability
+  layer: backend
+  title: Connection pool not explicitly configured (HikariCP)
+  why: >
+    Default pool size is 10. At 1,000 concurrent requests every thread queues
+    for a connection and the service freezes. Metric hit: p99 latency and
+    availability during peak traffic.
+  detect:
+    type: absent
+    required: "maximum-pool-size|maximumPoolSize"
+    globs: ["**/application*.yml", "**/application*.yaml", "**/application*.properties"]
+    applies_if: { globs: ["**/pom.xml", "**/build.gradle*"], pattern: "spring-boot-starter-data-jpa|spring-boot-starter-jdbc|hikari" }
+  severity: high
+  fix: |
+    spring:
+      datasource:
+        hikari:
+          maximum-pool-size: 50        # size = (peak TPS x avg query time) + headroom
+          minimum-idle: 10
+          connection-timeout: 30000
+          max-lifetime: 1800000
+
+- id: REL-BE-002
+  pillar: resilience
+  layer: backend
+  title: Outbound HTTP call without timeout
+  why: >
+    A slow dependency is more dangerous than a dead one — hanging calls hold
+    threads until the pool is exhausted and failure cascades upstream.
+    Metric hit: thread-pool saturation, cascading error rate.
+  detect:
+    type: present
+    pattern: "new RestTemplate\\(\\)|WebClient\\.create\\(\\)|requests\\.(get|post)\\((?![^)]*timeout)"
+    globs: ["**/*.java", "**/*.py"]
+  severity: blocker
+  fix: |
+    Java: build RestTemplate/WebClient with connect + read timeouts (2s/5s start).
+    Python: requests.get(url, timeout=(2, 5)). Never ship an unbounded call.
+
+- id: REL-BE-003
+  pillar: resilience
+  layer: backend
+  title: No circuit breaker on external dependencies
+  why: >
+    Without a breaker, a struggling downstream gets hammered and your service
+    dies with it. Breakers convert an outage into a fast, contained fallback.
+    Metric hit: MTTR, blast radius, error-budget burn.
+  detect:
+    type: absent
+    required: "@CircuitBreaker|resilience4j|CircuitBreakerFactory|pybreaker|circuitbreaker"
+    globs: ["**/*.java", "**/*.py", "**/*.yml", "**/*.yaml"]
+    applies_if: { globs: ["**/*.java", "**/*.py"], pattern: "RestTemplate|WebClient|FeignClient|requests\\.|httpx|axios" }
+  severity: high
+  fix: |
+    Resilience4j: @CircuitBreaker(name="payment", fallbackMethod="paymentFallback")
+    Config: sliding window 20, failure-rate 50%, wait 30s, half-open 3 calls.
+
+- id: REL-BE-004
+  pillar: resilience
+  layer: backend
+  title: Retry without exponential backoff / jitter
+  why: >
+    Naive retry loops turn one outage into a self-inflicted DDoS (retry storm).
+    Metric hit: recovery time of the failing dependency, cascading load.
+  detect:
+    type: present
+    pattern: "for\\s*\\(int i ?= ?0; ?i ?< ?[0-9]+; ?i\\+\\+\\)[^{]*\\{[^}]*(retry|process|call)|while.*retry"
+    globs: ["**/*.java", "**/*.py", "**/*.js", "**/*.ts"]
+  severity: high
+  fix: |
+    Use a retry library with exponential backoff + jitter + retry budget:
+    Resilience4j Retry / tenacity (Python) / axios-retry. Pattern: 1s, 2s, 4s + random jitter, max 3.
+
+- id: REL-BE-005
+  pillar: reliability
+  layer: backend
+  title: Transaction boundary wraps external HTTP call
+  why: >
+    Holding a DB connection while waiting on a payment gateway exhausts the
+    pool and leaves partial state on failure. Metric hit: data consistency
+    incidents, pool exhaustion under dependency latency.
+  detect:
+    type: present
+    pattern: "@Transactional[\\s\\S]{0,400}(RestTemplate|WebClient|feignClient|\\.charge\\(|requests\\.)"
+    globs: ["**/*.java"]
+  severity: high
+  fix: |
+    Split the method: DB writes inside @Transactional, external calls outside,
+    with explicit compensation (saga/outbox) on failure.
+
+- id: REL-BE-006
+  pillar: reliability
+  layer: backend
+  title: Swallowed exceptions (catch-and-continue)
+  why: >
+    Returning success after a failure creates silent data corruption and
+    un-debuggable tickets. Metric hit: defect escape rate, support MTTR.
+  detect:
+    type: present
+    pattern: "catch\\s*\\([^)]*\\)\\s*\\{\\s*\\}|except[^:]*:\\s*pass"
+    globs: ["**/*.java", "**/*.py"]
+  severity: medium
+  fix: Log with full context and rethrow, or map to an explicit error response. Never empty-catch.
+
+# ----------------------- OBSERVABILITY -------------------------------
+- id: OBS-BE-001
+  pillar: observability
+  layer: backend
+  title: Error logs without correlation context
+  why: >
+    "Payment failed" with no orderId/traceId means 40 minutes of log-grepping
+    at 3 AM instead of 30 seconds. Metric hit: MTTD and MTTR directly.
+  detect:
+    type: present
+    pattern: "log\\.(error|warn)\\(\"[A-Za-z ]+\"\\s*,\\s*e\\s*\\)"
+    globs: ["**/*.java", "**/*.kt"]
+  severity: medium
+  fix: |
+    log.error("Payment failed: orderId={}, userId={}, txId={}", id, uid, tx, e);
+    Adopt structured (JSON) logging + MDC trace/correlation IDs everywhere.
+
+- id: OBS-BE-002
+  pillar: observability
+  layer: backend
+  title: No distributed tracing instrumentation
+  why: >
+    Without trace propagation you cannot map causality across microservices —
+    debugging becomes guessing. Metric hit: MTTR for cross-service incidents.
+  detect:
+    type: absent
+    required: "micrometer-tracing|opentelemetry|brave|sleuth|dd-trace|elastic-apm"
+    globs: ["**/pom.xml", "**/build.gradle*", "**/requirements*.txt", "**/package.json", "**/pyproject.toml"]
+  severity: high
+  fix: Add OpenTelemetry auto-instrumentation (or org-standard APM agent) and propagate W3C traceparent headers.
+
+- id: OBS-BE-003
+  pillar: observability
+  layer: backend
+  title: No health/readiness endpoint exposed
+  why: >
+    Load balancers and Kubernetes cannot route around a sick instance they
+    cannot see. Metric hit: failover time, uptime %.
+  detect:
+    type: absent
+    required: "actuator|/health|/ready|healthz|readiness"
+    globs: ["**/*.java", "**/*.py", "**/*.js", "**/*.ts", "**/application*.yml", "**/application*.properties", "**/*.yaml"]
+  severity: high
+  fix: Spring Boot Actuator health groups (liveness/readiness) or an explicit /healthz + /readyz with dependency checks.
+
+- id: OBS-FE-001
+  pillar: observability
+  layer: frontend
+  title: No frontend error tracking / RUM
+  why: >
+    Backend dashboards are green while users see white screens. Real User
+    Monitoring closes that blind spot. Metric hit: user-facing MTTD.
+  detect:
+    type: absent
+    required: "sentry|datadog-rum|@datadog/browser|elastic-apm-rum|newrelic"
+    globs: ["**/package.json"]
+    applies_if: { globs: ["**/package.json"], pattern: "react|vue|angular|next|svelte" }
+  severity: medium
+  fix: Add org-approved RUM SDK (Datadog RUM / Sentry) with release + user-session tagging.
+
+# ----------------------- PERFORMANCE ---------------------------------
+- id: PERF-DB-001
+  pillar: performance
+  layer: database
+  title: SELECT * in application queries
+  why: >
+    Fetches every column forever, breaks covering indexes, bloats network and
+    memory as tables grow. Metric hit: query p95, DB CPU.
+  detect:
+    type: present
+    pattern: "(?i)select\\s+\\*\\s+from"
+    globs: ["**/*.java", "**/*.py", "**/*.sql", "**/*.ts", "**/*.js"]
+  severity: medium
+  fix: Select explicit columns; add covering indexes for the hot paths.
+
+- id: PERF-DB-002
+  pillar: performance
+  layer: database
+  title: Potential N+1 query pattern (JPA eager loops)
+  why: >
+    One list page = hundreds of queries. Invisible in staging, kills the DB at
+    real traffic. Metric hit: DB connections, endpoint p99.
+  detect:
+    type: present
+    pattern: "FetchType\\.EAGER"
+    globs: ["**/*.java"]
+  severity: medium
+  fix: Default to LAZY; use fetch joins / @EntityGraph / batch fetching for list endpoints.
+
+- id: PERF-BE-001
+  pillar: performance
+  layer: backend
+  title: Cache without invalidation strategy
+  why: >
+    @Cacheable with no @CachePut/@CacheEvict serves stale data weeks later —
+    users see old emails, old prices. Metric hit: data-freshness defects.
+  detect:
+    type: present
+    pattern: "@Cacheable"
+    globs: ["**/*.java"]
+  severity: medium
+  fix: Every @Cacheable needs a paired @CachePut/@CacheEvict on the write path plus a TTL. Scanner flags each usage for manual pairing review.
+
+- id: PERF-FE-001
+  pillar: performance
+  layer: frontend
+  title: No bundle-size / performance budget in build
+  why: >
+    Bundles only grow. Without a budget, page load creeps past 3s and nobody
+    notices until conversion drops. Metric hit: page load time, LCP.
+  detect:
+    type: absent
+    required: "performance\\s*:|budgets|bundlesize|size-limit|maxAssetSize"
+    globs: ["**/webpack*.js", "**/angular.json", "**/vite.config.*", "**/package.json"]
+    applies_if: { globs: ["**/package.json"], pattern: "react|vue|angular|next|svelte" }
+  severity: low
+  fix: Add size-limit or webpack performance budgets; fail CI when the budget is exceeded.
+
+# ----------------------- SECURITY ------------------------------------
+- id: SEC-ALL-001
+  pillar: security
+  layer: backend
+  title: Hardcoded secrets / credentials in code or config
+  why: >
+    Secrets in git are permanent — history keeps them even after deletion.
+    Metric hit: audit findings, breach exposure window.
+  detect:
+    type: present
+    pattern: "(?i)(password|secret|api[_-]?key|token)\\s*[:=]\\s*['\"][^'\"$\\{]{8,}['\"]"
+    globs: ["**/*.java", "**/*.py", "**/*.js", "**/*.ts", "**/*.yml", "**/*.yaml", "**/*.properties", "**/*.env"]
+  severity: blocker
+  fix: Move to vault/secret manager with dynamic injection; rotate anything already committed; add pre-commit secret scanning (gitleaks).
+
+- id: SEC-BE-001
+  pillar: security
+  layer: backend
+  title: SQL built by string concatenation (injection risk)
+  why: >
+    String-built SQL is the classic injection vector. Metric hit: security
+    incident count, pen-test findings.
+  detect:
+    type: present
+    pattern: "(executeQuery|createQuery|execute)\\s*\\(\\s*\".*\"\\s*\\+|f\"\\s*SELECT|\"SELECT .*\"\\s*%\\s*"
+    globs: ["**/*.java", "**/*.py"]
+  severity: blocker
+  fix: Parameterized queries / prepared statements only. Ban concatenated SQL in review + static analysis.
+
+- id: SEC-FE-001
+  pillar: security
+  layer: frontend
+  title: dangerouslySetInnerHTML / innerHTML usage (XSS surface)
+  why: >
+    Direct HTML injection is the #1 XSS entry point in SPAs. Metric hit:
+    security incidents, compliance findings.
+  detect:
+    type: present
+    pattern: "dangerouslySetInnerHTML|\\.innerHTML\\s*="
+    globs: ["**/*.jsx", "**/*.tsx", "**/*.js", "**/*.ts", "**/*.vue"]
+  severity: high
+  fix: Sanitize with DOMPurify or render as text; add CSP headers as defense in depth.
+
+- id: SEC-INF-001
+  pillar: security
+  layer: infra
+  title: Container runs as root
+  why: >
+    Root in the container means container escape = node compromise.
+    Metric hit: audit/compliance findings, blast radius.
+  detect:
+    type: absent
+    required: "USER\\s+[a-z0-9]|runAsNonRoot"
+    globs: ["**/Dockerfile*", "**/deployment*.yaml", "**/deployment*.yml"]
+    applies_if: { globs: ["**/Dockerfile*"], pattern: "FROM" }
+  severity: high
+  fix: |
+    Add a non-root USER in the Dockerfile and securityContext.runAsNonRoot: true in the pod spec.
+
+# ----------------------- AVAILABILITY / INFRA ------------------------
+- id: AVL-INF-001
+  pillar: availability
+  layer: infra
+  title: Single replica deployment (SPoF)
+  why: >
+    replicas: 1 means every deploy and every node failure is an outage.
+    Metric hit: uptime %, deploy-time availability.
+  detect:
+    type: present
+    pattern: "replicas:\\s*1\\b"
+    globs: ["**/*.yaml", "**/*.yml"]
+  severity: high
+  fix: "Minimum replicas: 2 across zones + PodDisruptionBudget + HPA for elasticity."
+
+- id: AVL-INF-002
+  pillar: availability
+  layer: infra
+  title: Missing readiness/liveness probes in K8s manifests
+  why: >
+    Without probes, Kubernetes sends traffic to booting or wedged pods.
+    Metric hit: error rate during deploys, self-healing time.
+  detect:
+    type: absent
+    required: "readinessProbe|livenessProbe"
+    globs: ["**/deployment*.yaml", "**/deployment*.yml", "**/*deploy*.yaml"]
+    applies_if: { globs: ["**/*.yaml", "**/*.yml"], pattern: "kind:\\s*Deployment" }
+  severity: high
+  fix: Add readinessProbe on /readyz (dependency-aware) and livenessProbe on /healthz with sane thresholds.
+
+- id: AVL-INF-003
+  pillar: availability
+  layer: infra
+  title: No resource requests/limits on containers
+  why: >
+    Unbounded pods trigger noisy-neighbor evictions and OOM-kill roulette.
+    Metric hit: random pod restarts, node stability.
+  detect:
+    type: absent
+    required: "resources:\\s*[\\s\\S]{0,80}(requests|limits)"
+    globs: ["**/deployment*.yaml", "**/deployment*.yml"]
+    applies_if: { globs: ["**/*.yaml", "**/*.yml"], pattern: "kind:\\s*Deployment" }
+  severity: medium
+  fix: Set requests from observed p95 usage; limits at ~2x requests; alert on throttling.
+
+- id: AVL-DB-001
+  pillar: availability
+  layer: database
+  title: Migrations without rollback path
+  why: >
+    A bad migration with no down-script turns a 5-minute rollback into a
+    multi-hour restore. Metric hit: MTTR on release failures.
+  detect:
+    type: absent
+    required: "-- rollback|def downgrade|migrate:down|DOWN"
+    globs: ["**/migrations/**/*.sql", "**/db/migration/**/*.sql", "**/migrations/**/*.py"]
+    applies_if: { globs: ["**/migrations/**", "**/db/migration/**"], pattern: "." }
+  severity: medium
+  fix: Every migration ships with a tested down-path, or is designed expand/contract (backwards-compatible) so rollback is a no-op.
+
+# ----------------------- OPERABILITY ---------------------------------
+- id: OPS-BE-001
+  pillar: operability
+  layer: backend
+  title: No graceful shutdown handling
+  why: >
+    On deploy, in-flight requests are killed mid-transaction — users see 502s
+    on every release. Metric hit: deploy-time error rate.
+  detect:
+    type: absent
+    required: "graceful|preStop|SIGTERM|shutdown"
+    globs: ["**/application*.yml", "**/application*.properties", "**/deployment*.yaml", "**/*.py", "**/*.js"]
+  severity: medium
+  fix: "Spring: server.shutdown=graceful + spring.lifecycle.timeout-per-shutdown-phase=20s; K8s preStop sleep 5 for LB drain."
+
+- id: OPS-BE-002
+  pillar: operability
+  layer: backend
+  title: No feature-flag / kill-switch capability
+  why: >
+    Without flags, the only rollback is a redeploy. A kill switch turns a
+    30-minute incident into a 30-second toggle. Metric hit: MTTR.
+  detect:
+    type: absent
+    required: "featureflag|feature_flag|launchdarkly|unleash|togglz|ff4j"
+    globs: ["**/pom.xml", "**/build.gradle*", "**/package.json", "**/requirements*.txt", "**/*.java", "**/*.py"]
+  severity: low
+  fix: Wrap risky new paths in flags (org-approved tool); document the kill switch in the runbook.

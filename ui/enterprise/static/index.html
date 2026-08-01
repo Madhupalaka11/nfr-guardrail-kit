@@ -1,0 +1,1492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NFR Guardrail — Release Gate Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#FAF7F2; --surface:#FFFFFF; --ivory2:#F2EDE4; --ink:#1A1A2E; --muted:#5C6070;
+    --navy:#003087; --navy-deep:#001F5C; --line:#DDD8CF; --gold:#B8960C;
+    --blocker:#C0392B; --high:#C25B0C; --medium:#9A7B14; --low:#5C6070; --ok:#0E7A4E;
+    --sans:"IBM Plex Sans",-apple-system,"Segoe UI",Roboto,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{font-family:var(--sans);background:var(--paper);color:var(--ink);display:flex;min-height:100vh}
+  button{font-family:inherit;cursor:pointer}
+  :focus-visible{outline:2px solid var(--navy);outline-offset:2px}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important}}
+
+  /* ================= rail ================= */
+  .rail{width:264px;flex-shrink:0;background:var(--navy-deep);color:#E8EEF6;display:flex;flex-direction:column;padding:22px 0;position:sticky;top:0;height:100vh}
+  .brand{padding:0 22px 16px;border-bottom:1px solid rgba(255,255,255,.12)}
+  .brand h1{font-size:16px;font-weight:700}
+  .brand .sub{font-size:10.5px;color:#8FA6C4;margin-top:3px;letter-spacing:.08em;text-transform:uppercase}
+  nav{padding:14px 12px;border-bottom:1px solid rgba(255,255,255,.12)}
+  .nav-btn{width:100%;text-align:left;background:none;border:0;color:#C4D3E6;padding:9px 12px;border-radius:6px;font-size:13.5px;font-weight:500;display:flex;align-items:center;gap:10px;margin-bottom:2px}
+  .nav-btn .ico{font-family:var(--mono);font-size:11px;width:20px;color:#6B84A6}
+  .nav-btn:hover{background:rgba(255,255,255,.07)}
+  .nav-btn.active{background:rgba(255,255,255,.12);color:#fff}
+  .nav-btn.active .ico{color:var(--gold)}
+  .rail h2{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:#8FA6C4;padding:16px 22px 6px}
+  .hist{overflow-y:auto;flex:1}
+  .hist-item{width:100%;text-align:left;background:none;border:0;color:#DCE6F2;padding:9px 22px;display:block;border-left:3px solid transparent}
+  .hist-item:hover{background:rgba(255,255,255,.06)}
+  .hist-item.active{border-left-color:var(--gold);background:rgba(255,255,255,.08)}
+  .hist-item .r{font-weight:600;font-size:12.5px}
+  .hist-item .m{font-family:var(--mono);font-size:10.5px;color:#8FA6C4;margin-top:2px}
+  .rail-foot{padding:12px 22px 0;font-size:10.5px;color:#6B84A6;border-top:1px solid rgba(255,255,255,.12);line-height:1.6}
+
+  /* ================= main ================= */
+  .main{flex:1;min-width:0;padding:24px 34px 70px;max-width:1240px}
+  .view{display:none}.view.active{display:block}
+  .pagehead{margin-bottom:18px}
+  .pagehead h2{font-size:20px;font-weight:700}
+  .pagehead p{font-size:13px;color:var(--muted);margin-top:4px;max-width:760px}
+
+  .scanbar{display:flex;gap:10px}
+  .scanbar input{flex:1;padding:11px 14px;font-family:var(--mono);font-size:13px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)}
+  .btn{padding:10px 18px;border-radius:6px;border:1px solid transparent;font-size:13px;font-weight:600}
+  .btn-primary{background:var(--navy);color:#fff}
+  .btn-primary:hover{background:#0F3560}
+  .btn-primary:disabled{opacity:.55;cursor:wait}
+  .btn-ghost{background:var(--surface);border-color:var(--line);color:var(--ink)}
+  .btn-ghost:hover{border-color:var(--navy);color:var(--navy)}
+  .note{font-size:12px;color:var(--muted);margin-top:8px}
+  .note code{font-family:var(--mono);font-size:11px;background:#EAEFF4;padding:1px 5px;border-radius:3px}
+
+  /* gate strip */
+  .gate{margin-top:24px}
+  .gate-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+  .gate-head h3{font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .gate-head .meta{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+  .strip{display:flex;height:34px;border-radius:6px;overflow:hidden;border:1px solid var(--line);background:var(--surface)}
+  .seg{display:flex;align-items:center;justify-content:center;gap:6px;color:#fff;font-family:var(--mono);font-size:12px;font-weight:600;border:0;min-width:0;transition:flex-grow .4s ease;white-space:nowrap;overflow:hidden}
+  .seg[data-c="0"]{display:none}
+  .seg.blocker{background:var(--blocker)}.seg.high{background:var(--high)}
+  .seg.medium{background:var(--medium)}.seg.low{background:var(--low)}
+  .seg.dim{opacity:.35}
+  .strip .clear{background:var(--ok);flex:1;color:#fff;font-family:var(--mono);font-size:12px;display:flex;align-items:center;justify-content:center}
+
+  .row{display:flex;gap:12px;margin-top:16px;flex-wrap:wrap}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:13px 17px;min-width:126px}
+  .card .k{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+  .card .v{font-family:var(--mono);font-size:25px;font-weight:600;margin-top:4px}
+
+  /* posture grid (overview) */
+  .posture{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-top:14px}
+  .pcard{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:15px 17px;text-align:left;cursor:pointer;transition:border-color .15s}
+  .pcard:hover{border-color:var(--navy)}
+  .pcard .ph{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .pcard .pn{font-size:13.5px;font-weight:600}
+  .pcard .pc{font-family:var(--mono);font-size:12px;font-weight:600}
+  .pcard .pc.gap{color:var(--blocker)}.pcard .pc.ok{color:var(--ok)}
+  .pcard .po{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5}
+  .mini{display:flex;height:6px;border-radius:3px;overflow:hidden;background:#EAEFF4;margin-top:10px}
+  .mini i{display:block}
+  .mini .b{background:var(--blocker)}.mini .h{background:var(--high)}.mini .m{background:var(--medium)}.mini .l{background:var(--low)}
+
+  /* section titles */
+  .sect{font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:26px 0 10px}
+
+  /* lens modules */
+  .lens-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+  .ltab{padding:7px 14px;border-radius:6px;border:1px solid var(--line);background:var(--surface);font-size:12.5px;font-weight:500;color:var(--muted);display:flex;gap:8px;align-items:center}
+  .ltab.on{background:var(--navy);border-color:var(--navy);color:#fff}
+  .ltab .cnt{font-family:var(--mono);font-size:11px}
+  .ltab.on .cnt{color:var(--gold)}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:22px 26px}
+  .panel h3{font-size:17px;font-weight:700}
+  .lede{font-size:14px;line-height:1.6;margin-top:8px;max-width:820px}
+  .lens-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:18px}
+  @media(max-width:980px){.lens-grid{grid-template-columns:1fr}}
+  .kv h4{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:7px}
+  .kv p{font-size:13px;line-height:1.6}
+  .metric-chip{display:inline-block;font-family:var(--mono);font-size:11.5px;background:#EAEFF4;color:var(--navy);border-radius:4px;padding:4px 9px;margin:0 6px 6px 0}
+  .lensq{margin-top:18px;border-left:4px solid var(--gold);background:#FBF6EA;border-radius:0 6px 6px 0;padding:12px 16px;font-size:13.5px;font-style:italic}
+  .lensq b{font-style:normal;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:#8A6A1F;display:block;margin-bottom:4px}
+
+  table{width:100%;border-collapse:collapse;margin-top:10px;background:var(--surface)}
+  th{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+  td{font-size:12.5px;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  td.mono{font-family:var(--mono);font-size:11.5px}
+  .st{font-family:var(--mono);font-size:11px;font-weight:600}
+  .st.gap{color:var(--blocker)}.st.ok{color:var(--ok)}.st.na{color:var(--muted)}
+
+  /* findings */
+  .filters{display:flex;gap:8px;margin:4px 0 14px;flex-wrap:wrap;align-items:center}
+  .chip{padding:6px 13px;border-radius:99px;border:1px solid var(--line);background:var(--surface);font-size:12px;font-weight:500;color:var(--muted)}
+  .chip.on{background:var(--navy);border-color:var(--navy);color:#fff}
+  .findings{display:flex;flex-direction:column;gap:8px}
+  .f{background:var(--surface);border:1px solid var(--line);border-left-width:4px;border-radius:6px}
+  .f.blocker{border-left-color:var(--blocker)}.f.high{border-left-color:var(--high)}
+  .f.medium{border-left-color:var(--medium)}.f.low{border-left-color:var(--low)}
+  .f-head{display:flex;align-items:center;gap:12px;padding:12px 16px;width:100%;background:none;border:0;text-align:left}
+  .rid{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--navy);flex-shrink:0}
+  .f-title{font-size:14px;font-weight:600;flex:1;min-width:0}
+  .tag{font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:4px;background:#EAEFF4;color:var(--muted);flex-shrink:0}
+  .sev{font-family:var(--mono);font-size:11px;font-weight:600;flex-shrink:0;text-transform:uppercase}
+  .sev.blocker{color:var(--blocker)}.sev.high{color:var(--high)}
+  .sev.medium{color:var(--medium)}.sev.low{color:var(--low)}
+  .f-body{display:none;padding:0 16px 16px;border-top:1px solid var(--line)}
+  .f.open .f-body{display:block}
+  .f-body h4{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:14px 0 6px}
+  .f-body p{font-size:13.5px;line-height:1.55}
+  .loc{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .loc code{font-family:var(--mono);font-size:12px;background:#EAEFF4;padding:4px 8px;border-radius:4px}
+  .vsc{font-size:12px;font-weight:600;color:var(--navy);text-decoration:none;border:1px solid var(--line);border-radius:5px;padding:4px 10px;background:var(--surface)}
+  .vsc:hover{border-color:var(--navy)}
+  pre{font-family:var(--mono);font-size:12px;line-height:1.6;background:#0E1B2B;color:#DCE6F2;padding:12px 14px;border-radius:6px;overflow-x:auto;white-space:pre-wrap}
+
+  /* reports */
+  .report-pre{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:18px 22px;font-family:var(--mono);font-size:12px;line-height:1.7;white-space:pre-wrap;max-height:520px;overflow:auto;color:var(--ink)}
+  .trendbar{display:flex;height:10px;width:150px;border-radius:3px;overflow:hidden;background:#EAEFF4}
+
+  .empty{margin-top:56px;text-align:center;color:var(--muted)}
+  .empty .big{font-size:16px;font-weight:600;color:var(--ink);margin-bottom:6px}
+  .toast{position:fixed;bottom:22px;right:22px;background:var(--ink);color:#fff;padding:11px 18px;border-radius:6px;font-size:13px;display:none;z-index:9}
+  @media (max-width:900px){.rail{display:none}.main{padding:16px}}
+
+  /* assistant */
+  .fab{position:fixed;bottom:22px;right:22px;width:54px;height:54px;border-radius:50%;background:var(--navy);color:#fff;border:0;font-size:22px;box-shadow:0 4px 14px rgba(12,42,82,.35);z-index:20}
+  .fab:hover{background:#0F3560}
+  .chat{position:fixed;bottom:88px;right:22px;width:390px;max-width:calc(100vw - 32px);height:520px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 40px rgba(12,42,82,.25);display:none;flex-direction:column;z-index:21;overflow:hidden}
+  .chat.open{display:flex}
+  .chat-h{background:var(--navy-deep);color:#fff;padding:12px 16px}
+  .chat-h b{font-size:13.5px}
+  .chat-h .s{display:block;font-size:10.5px;color:#8FA6C4;margin-top:2px}
+  .chat-b{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;background:var(--paper)}
+  .msg{max-width:88%;padding:9px 12px;border-radius:10px;font-size:12.5px;line-height:1.55}
+  .msg.u{align-self:flex-end;background:var(--navy);color:#fff;border-bottom-right-radius:3px}
+  .msg.a{align-self:flex-start;background:var(--surface);border:1px solid var(--line);border-bottom-left-radius:3px}
+  .msg.a b{color:var(--navy)}
+  .msg.a code{font-family:var(--mono);font-size:11px;background:#EAEFF4;padding:1px 4px;border-radius:3px}
+  .msg.a pre{margin-top:6px;font-size:11px;padding:8px 10px}
+  .qchips{display:flex;gap:6px;flex-wrap:wrap;padding:0 14px 8px;background:var(--paper)}
+  .qchip{font-size:11px;padding:4px 10px;border-radius:99px;border:1px solid var(--line);background:var(--surface);color:var(--navy)}
+  .chat-in{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);background:var(--surface)}
+  .chat-in input{flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;font-family:var(--sans)}
+  .copybtn{font-size:11.5px;font-weight:600;color:var(--navy);border:1px solid var(--line);background:var(--surface);border-radius:5px;padding:4px 10px}
+  .copybtn:hover{border-color:var(--navy)}
+
+  /* enterprise polish */
+  .card,.pcard,.panel,.f{box-shadow:0 1px 2px rgba(14,27,43,.04)}
+  .pcard:hover,.panel:hover{box-shadow:0 4px 14px rgba(14,27,43,.08)}
+  .view.active{animation:fadein .18s ease}
+  @keyframes fadein{from{opacity:.35;transform:translateY(3px)}to{opacity:1;transform:none}}
+  /* hero landing */
+  .hero{margin-top:22px;background:linear-gradient(120deg,#0C2A52 0%,#16457E 70%,#1B5493 100%);border-radius:12px;color:#fff;padding:30px 34px;position:relative;overflow:hidden}
+  .hero::after{content:"";position:absolute;right:-60px;top:-60px;width:260px;height:260px;border-radius:50%;border:34px solid rgba(242,179,61,.12)}
+  .hero h3{font-size:21px;font-weight:700;max-width:640px;line-height:1.35}
+  .hero p{font-size:13px;color:#B9CBE2;margin-top:10px;max-width:620px;line-height:1.6}
+  .hero-stats{display:flex;gap:34px;margin-top:22px;flex-wrap:wrap}
+  .hstat .n{font-family:var(--mono);font-size:26px;font-weight:600;color:var(--gold)}
+  .hstat .l{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:#8FA6C4;margin-top:3px}
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:16px}
+  .step{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px 18px}
+  .step .sn{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--gold);background:var(--navy-deep);border-radius:5px;padding:2px 8px;display:inline-block}
+  .step b{display:block;font-size:13.5px;margin-top:9px}
+  .step p{font-size:12.5px;color:var(--muted);margin-top:5px;line-height:1.55}
+  .step .go{margin-top:10px;display:inline-block;font-size:12px;font-weight:600;color:var(--navy);cursor:pointer;border:0;background:none;padding:0}
+  .step .go:hover{text-decoration:underline}
+  /* kb */
+  .kb-card{background:var(--surface);border:1px solid var(--line);border-radius:8px;margin-bottom:10px}
+  .kb-h{display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;text-align:left;padding:14px 18px}
+  .kb-h b{font-size:14px;flex:1}
+  .kb-h .kbsum{display:block;font-size:12.5px;color:var(--muted);font-weight:400;margin-top:3px}
+  .kb-body{display:none;padding:0 18px 16px;border-top:1px solid var(--line)}
+  .kb-card.open .kb-body{display:block}
+  .kb-body pre{background:#FBFCFD;color:var(--ink);border:1px solid var(--line);font-size:12px;line-height:1.7}
+
+  /* topbar */
+  .topbar{position:sticky;top:0;z-index:15;background:rgba(255,255,255,.92);backdrop-filter:blur(6px);border-bottom:1px solid var(--line);margin:-24px -34px 22px;padding:12px 34px;display:flex;align-items:center;gap:14px}
+  .topbar .ctx{display:flex;flex-direction:column;min-width:0}
+  .topbar .ctx b{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .topbar .ctx span{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-top:1px}
+  .pill{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:4px 10px;border-radius:99px}
+  .pill.review{background:#FDECEC;color:var(--blocker)}
+  .pill.watch{background:#FFF4E3;color:var(--high)}
+  .pill.steady{background:#E7F5EF;color:var(--ok)}
+  .pill.idle{background:#EAEFF4;color:var(--muted)}
+  .topbar .acts{margin-left:auto;display:flex;gap:8px}
+  /* viz row */
+  .vizrow{display:grid;grid-template-columns:230px 1fr 230px;gap:12px;margin-top:16px}
+  @media(max-width:1020px){.vizrow{grid-template-columns:1fr}}
+  .donutwrap{display:flex;align-items:center;gap:16px}
+  .donut{width:118px;height:118px;border-radius:50%;position:relative;flex-shrink:0}
+  .donut::after{content:"";position:absolute;inset:16px;background:var(--surface);border-radius:50%}
+  .donut .dc{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:1}
+  .donut .dc b{font-family:var(--mono);font-size:22px}
+  .donut .dc span{font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+  .legend{font-size:11.5px;line-height:1.9}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:7px}
+  .layerbar{margin-bottom:12px}
+  .layerbar .lb-h{display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px}
+  .layerbar .lb-h b{text-transform:capitalize}
+  .layerbar .lb-h span{font-family:var(--mono);color:var(--muted)}
+  .lb-track{display:flex;height:9px;border-radius:4px;overflow:hidden;background:#EAEFF4}
+  /* tables */
+  tbody tr:nth-child(even){background:#FAFBFC}
+  tbody tr:hover{background:#F1F5F9}
+  thead th{position:sticky;top:64px;background:var(--surface);z-index:2}
+  .kb-body pre,.report-pre{tab-size:4}
+
+  /* report trilogy viewer */
+  .rtabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+  .rtab{padding:8px 18px;border-radius:7px;border:1px solid var(--line);background:var(--surface);font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:8px}
+  .rtab:hover{border-color:var(--navy)}
+  .rtab.hl.on{background:var(--navy);border-color:var(--navy);color:#fff}
+  .rtab.ll.on{background:#3d2e75;border-color:#3d2e75;color:#fff}
+  .rtab.ex.on{background:#0f3d20;border-color:#0f3d20;color:#fff}
+  .rtab .rtic{font-size:11px;font-family:var(--mono);opacity:.75}
+  .rframe-wrap{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(14,27,43,.08)}
+  .rframe-bar{display:flex;align-items:center;gap:10px;padding:9px 16px;background:#EEF2F6;border-bottom:1px solid var(--line)}
+  .rframe-bar .rftitle{font-size:12.5px;font-weight:600;flex:1;color:var(--ink)}
+  .rframe-bar .rfmeta{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  iframe.rview{width:100%;height:700px;border:0;display:block;background:#fff}
+  .rloading{height:700px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;color:var(--muted);background:var(--surface)}
+  .rloading .spinner{width:36px;height:36px;border:3px solid var(--line);border-top-color:var(--navy);border-radius:50%;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .rtab .rdot{width:8px;height:8px;border-radius:50%;display:inline-block}
+
+  /* reports tab: scan log + report panel */
+  .scanlog{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:12.5px;margin:14px 0}
+  .scanlog thead th{background:#EEF2F6;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:left;padding:10px 13px;border-bottom:1px solid var(--line);font-weight:600;white-space:nowrap}
+  .scanlog td{padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:middle}
+  .scanlog tbody tr:hover{background:#F1F5F9;cursor:pointer}
+  .scanlog tbody tr.sel{background:#EDF3FB;outline:2px solid var(--navy);outline-offset:-2px}
+  .scanlog tbody tr:last-child td{border-bottom:0}
+  .slog-rag{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;font-weight:700}
+  .slog-dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .rpanel{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:6px;box-shadow:0 2px 8px rgba(14,27,43,.07)}
+  .rpanel-head{display:flex;align-items:center;gap:12px;padding:11px 16px;background:#EEF2F6;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .rpanel-head .rph-title{font-size:13.5px;font-weight:700;flex:1}
+  .rpanel-head .rph-meta{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .rtabs2{display:flex;gap:6px}
+  .rtab2{padding:6px 13px;border-radius:6px;border:1px solid var(--line);background:var(--surface);font-size:12px;font-weight:600;color:var(--muted);cursor:pointer}
+  .rtab2:hover{border-color:var(--navy)}
+  .rtab2.hl.on{background:var(--navy);border-color:var(--navy);color:#fff}
+  .rtab2.ll.on{background:#3d2e75;border-color:#3d2e75;color:#fff}
+  .rtab2.ex.on{background:#0f3d20;border-color:#0f3d20;color:#fff}
+  .rpanel-dl{margin-left:auto;display:flex;gap:6px}
+  .rframe2-wrap{position:relative;background:#fff}
+  .rspinner{display:none;position:absolute;inset:0;background:rgba(255,255,255,.85);align-items:center;justify-content:center;flex-direction:column;gap:12px;z-index:5}
+  .rspinner.on{display:flex}
+  .rspinner .sp{width:32px;height:32px;border:3px solid var(--line);border-top-color:var(--navy);border-radius:50%;animation:spin .7s linear infinite}
+  iframe.rframe2{width:100%;height:680px;border:0;display:block}
+  .empty-rpanel{height:200px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:var(--muted)}
+  .empty-rpanel .big{font-size:14px;font-weight:600;color:var(--ink)}
+
+  /* app registry */
+  .appcard{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 20px;margin-bottom:12px;box-shadow:0 1px 3px rgba(14,27,43,.05)}
+  .appcard-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .seal{font-family:var(--mono);font-size:11px;font-weight:700;background:var(--navy-deep);color:var(--gold);border-radius:5px;padding:3px 10px}
+  .appcard-head .aname{font-size:15px;font-weight:700;flex:1}
+  .appcard-head .aurl{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .branch-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+  @media(max-width:760px){.branch-grid{grid-template-columns:1fr}}
+  .branchcol{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+  .branchcol .bname{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--navy);margin-bottom:8px}
+  .branchcol .bstat{font-size:12px;color:var(--muted)}
+  .branchcol .bsev{font-family:var(--mono);font-size:13px;font-weight:700;margin-top:6px}
+  .brag{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:99px}
+  .brag.r{background:#FDECEC;color:var(--blocker)}.brag.a{background:#FFF3E0;color:var(--high)}.brag.g{background:#E7F5EF;color:var(--ok)}.brag.n{background:#EAEFF4;color:var(--muted)}
+  .app-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+
+  .rb-filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0}
+  .rb-chip{padding:6px 13px;border-radius:99px;border:1px solid var(--line);background:var(--surface);font-size:12px;font-weight:600;color:var(--muted);cursor:pointer}
+  .rb-chip:hover{border-color:var(--navy)}
+  .rb-chip.on{background:var(--navy);border-color:var(--navy);color:#fff}
+  .rbcard{background:var(--surface);border:1px solid var(--line);border-radius:10px;margin-bottom:12px;overflow:hidden}
+  .rbhead{display:flex;align-items:center;gap:12px;padding:13px 18px;cursor:pointer;flex-wrap:wrap}
+  .rbhead:hover{background:var(--paper)}
+  .rbid{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--navy);background:var(--paper);border:1px solid var(--line);border-radius:5px;padding:3px 9px}
+  .rbtitle{font-size:14px;font-weight:700;flex:1;min-width:200px}
+  .sevb{font-family:var(--mono);font-size:10px;font-weight:700;padding:3px 9px;border-radius:5px}
+  .sevb.SEV1{background:#FBE9E7;color:var(--blocker)}
+  .sevb.SEV2{background:#FCF0E2;color:var(--high)}
+  .sevb.SEV3{background:#F7F1DC;color:var(--medium)}
+  .sevb.INFO{background:var(--paper);color:var(--muted)}
+  .rbcat{font-size:11px;color:var(--muted);font-weight:600}
+  .rbchev{color:var(--muted);font-size:13px;transition:transform .15s}
+  .rbcard.open .rbchev{transform:rotate(90deg)}
+  .rbbody{display:none;padding:0 18px 18px;border-top:1px solid var(--line)}
+  .rbcard.open .rbbody{display:block}
+  .rbsum{font-size:13px;color:var(--muted);padding:12px 0;font-style:italic}
+  .rbsec{margin-top:14px}
+  .rbsec h5{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;font-weight:700;margin-bottom:7px}
+  .rbsec.act h5{color:var(--blocker)}
+  .rbsec.diag h5{color:var(--high)}
+  .rbsec.res h5{color:var(--ok)}
+  .rbsec.esc h5{color:var(--navy)}
+  .rbsec.post h5,.rbsec.sym h5{color:var(--muted)}
+  .rbsec ol,.rbsec ul{margin:0;padding-left:20px}
+  .rbsec li{font-size:12.5px;color:var(--ink);margin:5px 0;line-height:1.55}
+  .rbdet{background:var(--paper);border:1px solid var(--line);border-radius:7px;padding:10px 13px;margin-top:6px}
+  .rbdet div{font-family:var(--mono);font-size:11.5px;padding:3px 0}
+  .rbdet b{color:var(--navy)}
+  .rbnfr{margin-top:12px;padding-top:10px;border-top:1px dashed var(--line);font-size:11px;color:var(--muted)}
+  .rbnfr code{font-family:var(--mono);font-size:10.5px;background:var(--paper);border:1px solid var(--line);color:var(--navy);padding:2px 7px;border-radius:4px;margin-right:5px}
+</style>
+</head>
+<body>
+
+<aside class="rail">
+  <div class="brand"><h1>NFR Guardrail</h1><div class="sub">Release Gate Console</div></div>
+  <nav aria-label="Views">
+    <button class="nav-btn active" data-view="overview"><span class="ico">◧</span>Overview</button>
+    <button class="nav-btn" data-view="repos"><span class="ico">⎇</span>Repo Bundle</button>
+    <button class="nav-btn" data-view="apps"><span class="ico">◈</span>Applications</button>
+    <button class="nav-btn" data-view="lens"><span class="ico">◎</span>NFR Lens</button>
+    <button class="nav-btn" data-view="findings"><span class="ico">≡</span>Gaps</button>
+    <button class="nav-btn" data-view="recs"><span class="ico">✔</span>Recommendations</button>
+    <button class="nav-btn" data-view="history"><span class="ico">⟲</span>History</button>
+    <button class="nav-btn" data-view="reports"><span class="ico">⬇</span>Reports</button>
+    <button class="nav-btn" data-view="ai"><span class="ico">✦</span>AI Insights</button>
+    <button class="nav-btn" data-view="dict"><span class="ico">✎</span>NFR Dictionary</button>
+    <button class="nav-btn" data-view="prompts"><span class="ico">❯</span>Copilot Prompts</button>
+    <button class="nav-btn" data-view="runbooks"><span class="ico">&#9776;</span>SRE Runbooks</button>
+    <button class="nav-btn" data-view="kb"><span class="ico">✚</span>Knowledge Base</button>
+  </nav>
+  <h2>Scan history</h2>
+  <div class="hist" id="hist"></div>
+  <div class="rail-foot">Read-only · No LLM · Local only<br>Findings &amp; recommendations — PRR sign-off decides.</div>
+</aside>
+
+<main class="main">
+  <div class="topbar">
+    <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;margin-right:10px" onclick="doLogout()">Sign out</button>
+    <span class="pill idle" id="ctxPill">No scan</span>
+    <div class="ctx"><b id="ctxTitle">NFR Guardrail — Release Gate Console</b><span id="ctxSub">Register a repo or scan a local path to begin</span></div>
+    <div class="acts">
+      <button class="btn btn-ghost" style="padding:7px 14px;font-size:12.5px" onclick="goto('overview');document.getElementById('repoPath').focus()">New scan</button>
+      <button class="btn btn-ghost" style="padding:7px 14px;font-size:12.5px" onclick="dl('report.md')">Report</button>
+      <button class="btn btn-primary" style="padding:7px 14px;font-size:12.5px" onclick="goto('recs')">Fix plan</button>
+    </div>
+  </div>
+
+  <!-- ============ OVERVIEW ============ -->
+  <section class="view active" id="view-overview">
+    <div class="pagehead">
+      <h2>Release Gate</h2>
+      <p>Run a full-stack NFR scan — frontend, backend, database, infra — and see the risk surface of the release candidate in one glance. The repo is never modified.</p>
+    </div>
+    <form class="scanbar" id="scanForm">
+      <input id="repoPath" placeholder="/absolute/path/to/cloned/repo" spellcheck="false" autocomplete="off" aria-label="Repository path">
+      <button class="btn btn-primary" id="scanBtn" type="submit">Run scan</button>
+    </form>
+    <div class="note">Outputs land in <code>.nfr-scan/</code> inside the repo. Deterministic and reproducible — same repo, same findings.</div>
+
+    <div id="ovContent" hidden>
+      <div class="gate">
+        <div class="gate-head"><h3>Release gate — <span id="gateRepo"></span></h3><span class="meta" id="gateMeta"></span></div>
+        <div class="strip" id="strip" role="group" aria-label="Findings by severity"></div>
+      </div>
+      <div class="row" id="cards"></div>
+      <div class="vizrow">
+        <div class="card"><div class="k">Severity mix</div><div class="donutwrap" style="margin-top:10px"><div class="donut" id="donut"><div class="dc"><b id="donutTotal">0</b><span>gaps</span></div></div><div class="legend" id="donutLegend"></div></div></div>
+        <div class="card"><div class="k">Gaps by stack layer</div><div id="layerBars" style="margin-top:12px"></div></div>
+        <div class="card"><div class="k">Attention needed most</div><div id="worstPillar" style="margin-top:10px;font-size:12.5px;line-height:1.6"></div></div>
+      </div>
+      <div class="sect">Pillar posture — click a pillar to open its lens</div>
+      <div class="posture" id="posture"></div>
+      <div class="sect">Top risks in this release candidate</div>
+      <div class="findings" id="topRisks"></div>
+    </div>
+    <div id="ovEmpty">
+      <div class="hero">
+        <h3>Every release answers four questions before production:<br>Why it matters · What the gap is · Where in the code · How to fix it.</h3>
+        <p>A full-stack NFR guardrail for SREs — deterministic scanning across frontend, backend, database and infra, branch-aware history, and an evidence-first report. No pass/fail verdicts: the guardrail identifies, the PRR sign-off decides.</p>
+        <div class="hero-stats" id="heroStats"></div>
+      </div>
+      <div class="sect">Get to your first report in three steps</div>
+      <div class="steps">
+        <div class="step"><span class="sn">01</span><b>Register the repo</b><p>Add the git link once with the branches to track — develop, master, release. The bundle keeps every branch fresh.</p><button class="go" onclick="goto('repos')">Open Repo Bundle →</button></div>
+        <div class="step"><span class="sn">02</span><b>Run the scan</b><p>Sync &amp; scan all branches, or point the bar above at any local clone. 24 rules across 7 pillars, file:line evidence, seconds per repo.</p><button class="go" onclick="document.getElementById('repoPath').focus()">Scan a local path →</button></div>
+        <div class="step"><span class="sn">03</span><b>Review, fix, export</b><p>Gaps by category, a blockers-first fix plan with copy-ready remediation, and the report + SARIF for the PRR ticket.</p><button class="go" onclick="goto('lens')">Explore the NFR Lens →</button></div>
+      </div>
+      <div class="sect">The seven lenses this guardrail applies</div>
+      <div class="posture" id="landingPillars"></div>
+    </div>
+  </section>
+
+
+  <!-- ============ APPLICATIONS (SEAL ID) ============ -->
+  <section class="view" id="view-apps">
+    <div class="pagehead">
+      <h2>Application Registry</h2>
+      <p>Register each application once by SEAL ID and name. The console syncs its branches from Bitbucket and tracks NFR scan history per branch — so you see dev/master/release in one place for every service in your portfolio.</p>
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px">
+      <div style="flex:1;min-width:220px">
+        <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Select application</div>
+        <select id="appDropdown" onchange="onAppSelect()" style="width:100%;padding:10px 14px;font-size:13.5px;font-weight:600;border:1.5px solid var(--line);border-radius:7px;background:var(--surface);color:var(--ink);font-family:var(--sans)">
+          <option value="">- Choose SEAL ID / App -</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" style="padding:10px 18px;white-space:nowrap" onclick="toggleAppForm()">+ Register new app</button>
+    </div>
+    <form class="scanbar" id="appForm" style="flex-wrap:wrap;gap:8px;display:none">
+      <input id="appSealId"    placeholder="SEAL ID — e.g. 99899"               style="max-width:160px" autocomplete="off">
+      <input id="appName"      placeholder="Application name — e.g. NFR APP"     style="flex:1;min-width:180px" autocomplete="off">
+      <input id="appUrl"       placeholder="Bitbucket / git URL (or local path)" style="flex:2;min-width:260px" spellcheck="false">
+      <input id="appBranches"  value="develop, master, release"                  style="max-width:240px">
+      <button class="btn btn-primary" type="submit">Register app</button>
+    </form>
+    <div class="note">Branches are comma-separated. Git operations are <code>clone</code> / <code>fetch</code> only — never push. Bundle stored in <code>ui/enterprise/bundle/</code>.</div>
+
+    <div class="sect">Registered applications — NFR status per branch</div>
+    <div id="appList"><div style="font-size:13px;color:var(--muted)">No applications registered yet.</div></div>
+  </section>
+
+  <!-- ============ REPO BUNDLE ============ -->
+  <section class="view" id="view-repos">
+    <div class="pagehead">
+      <h2>Repo Bundle</h2>
+      <p>Register any repository by git link once — the console clones each tracked branch into a local bundle, keeps it fresh with a fetch on every scan, and records history per repo, branch, and commit. Compare NFR debt across <b>develop → master → release</b> to catch drift before it ships.</p>
+    </div>
+    <form class="scanbar" id="repoForm" style="flex-wrap:wrap">
+      <input id="repoUrl" placeholder="https://git.company.com/team/service.git  (or local /path/to/repo)" spellcheck="false" autocomplete="off" aria-label="Repository git URL" style="min-width:340px">
+      <input id="repoBranches" value="develop, master, release" spellcheck="false" aria-label="Branches to track" style="max-width:260px">
+      <button class="btn btn-primary" type="submit">Register repo</button>
+    </form>
+    <div class="note">Branches are comma-separated. Git operations are <code>clone</code>/<code>fetch</code> only — the console never pushes. Bundle lives in <code>ui/enterprise/bundle/</code>.</div>
+    <div class="sect">Registered repositories — latest scan per branch</div>
+    <div id="repoList"><div style="font-size:13px;color:var(--muted)">No repositories registered yet.</div></div>
+  </section>
+
+  <!-- ============ NFR LENS ============ -->
+  <section class="view" id="view-lens">
+    <div class="pagehead">
+      <h2>NFR Lens</h2>
+      <p>Each pillar is a lens the guardrail applies to every release: its objective, what the scan checks, the production metrics it protects, and — when a scan is loaded — exactly where this repo falls short and how to fix it.</p>
+    </div>
+    <div class="lens-tabs" id="lensTabs"></div>
+    <div id="lensPanel"></div>
+  </section>
+
+  <!-- ============ FINDINGS ============ -->
+  <section class="view" id="view-findings">
+    <div class="pagehead">
+      <h2>NFR Gaps — all categories</h2>
+      <p>Every gap grouped by NFR category, with file:line evidence, the plain-English reason it matters, and a paste-ready fix. Jump straight to the line in your local VS Code.</p>
+    </div>
+    <div class="filters" id="filters">
+      <span style="font-size:12px;color:var(--muted);font-weight:600">Severity</span><span id="sevChips" style="display:contents"></span>
+      <span style="width:1px;height:20px;background:var(--line);margin:0 4px"></span>
+      <span style="font-size:12px;color:var(--muted);font-weight:600">Pillar</span><span id="pillarChips" style="display:contents"></span>
+    </div>
+    <div class="findings" id="findings"></div>
+    <div class="empty" id="fEmpty"><div class="big">No scan loaded</div>Run a scan from the Overview tab first.</div>
+  </section>
+
+  <!-- ============ REPORTS ============ -->
+  <section class="view" id="view-reports">
+    <div class="pagehead">
+      <h2>Reports &amp; Trends</h2>
+      <p>Every NFR check ever run is logged below — repo, branch, commit, timestamp, and RAG readiness. Select any row to preview or download its three reports inline.</p>
+    </div>
+
+    <!-- scan log -->
+    <div class="sect" style="margin-top:0">NFR Check Log — all scans</div>
+    <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:12px;color:var(--muted);font-weight:600">Filter</span>
+      <select id="slogRepo" class="chip" style="appearance:auto" onchange="renderScanLog()"><option value="">All repos</option></select>
+      <select id="slogBranch" class="chip" style="appearance:auto" onchange="renderScanLog()"><option value="">All branches</option></select>
+      <button class="btn btn-ghost" style="margin-left:auto;font-size:12px" onclick="refreshScanLog()">↻ Refresh</button>
+    </div>
+    <table class="scanlog" id="scanLogTable">
+      <thead><tr>
+        <th>Repo</th><th>Branch</th><th>Commit</th>
+        <th>Scanned (UTC)</th><th>Files</th>
+        <th>🔴</th><th>🟠</th><th>🟡</th><th>⚪</th>
+        <th>Readiness</th><th>Actions</th>
+      </tr></thead>
+      <tbody id="scanLogBody"><tr><td colspan="11" style="color:var(--muted);text-align:center;padding:24px">No scans yet — run a scan from the Overview tab.</td></tr></tbody>
+    </table>
+
+    <!-- report panel (appears when a scan is selected) -->
+    <div id="rpanel" style="display:none">
+      <div class="rpanel-head">
+        <div>
+          <div class="rph-title" id="rphTitle">Select a scan above</div>
+          <div class="rph-meta" id="rphMeta"></div>
+        </div>
+        <div class="rtabs2">
+          <button class="rtab2 hl" onclick="showReport2('report-highlevel',this)">📋 High-Level (Exec)</button>
+          <button class="rtab2 ll" onclick="showReport2('report-lowlevel',this)">🔧 Low-Level (SRE)</button>
+          <button class="rtab2 ex" onclick="showReport2('report-execsheet',this)">⚡ Execution Sheet</button>
+        </div>
+        <div class="rpanel-dl">
+          <button class="btn btn-ghost" id="rDlBtn" onclick="dlActive2()" style="font-size:12px">⬇ Download</button>
+          <button class="btn btn-ghost" onclick="dl('sarif')" style="font-size:12px">SARIF</button>
+          <button class="btn btn-ghost" onclick="dl('findings.json')" style="font-size:12px">JSON</button>
+        </div>
+      </div>
+      <div class="rframe2-wrap">
+        <div class="rspinner" id="rspinner"><div class="sp"></div><span style="font-size:12.5px;color:var(--muted)">Generating report…</span></div>
+        <iframe class="rframe2" id="rframe2" title="Report preview"></iframe>
+      </div>
+    </div>
+    <div class="empty-rpanel" id="rPanelEmpty">
+      <div class="big">Select a scan from the log above</div>
+      <div>Click any row to load its reports. Click a report tab to preview it here.</div>
+    </div>
+
+    <div class="sect">NFR debt trend</div>
+    <table id="trendTable">
+      <thead><tr><th>Repo</th><th>Branch</th><th>Scanned (UTC)</th><th>Files</th><th>🔴 B</th><th>🟠 H</th><th>🟡 M</th><th>⚪ L</th><th>Mix</th></tr></thead>
+      <tbody id="trendBody"><tr><td colspan="9" style="color:var(--muted)">No scans yet.</td></tr></tbody>
+    </table>
+  </section>
+
+  <!-- ============ RECOMMENDATIONS ============ -->
+  <section class="view" id="view-recs">
+    <div class="pagehead">
+      <h2>Recommendations</h2>
+      <p>The remediation plan for the loaded scan: gaps de-duplicated by rule, sequenced blockers-first, each with occurrence count, affected locations, and a copy-ready fix. Attach the order to the release ticket as the fix plan.</p>
+    </div>
+    <div id="recsBody"><div class="empty"><div class="big">No scan loaded</div>Run a scan from the Overview tab first.</div></div>
+  </section>
+
+  <!-- ============ HISTORY ============ -->
+  <section class="view" id="view-history">
+    <div class="pagehead">
+      <h2>Scan History</h2>
+      <p>Every scan ever run, keyed by repository, branch, and commit. Filter to answer "when did this enter develop?" and open any past scan in full.</p>
+    </div>
+    <div class="filters">
+      <span style="font-size:12px;color:var(--muted);font-weight:600">Repo</span>
+      <select id="histRepo" class="chip" style="appearance:auto" onchange="renderHistory()"><option value="">All</option></select>
+      <span style="font-size:12px;color:var(--muted);font-weight:600">Branch</span>
+      <select id="histBranch" class="chip" style="appearance:auto" onchange="renderHistory()"><option value="">All</option></select>
+    </div>
+    <table><thead><tr><th>#</th><th>Repo</th><th>Branch</th><th>Commit</th><th>Scanned (UTC)</th><th>Files</th><th>🔴 B</th><th>🟠 H</th><th>🟡 M</th><th>⚪ L</th><th></th></tr></thead>
+    <tbody id="histBody"><tr><td colspan="11" style="color:var(--muted)">No scans yet.</td></tr></tbody></table>
+  </section>
+
+
+  <!-- ============ AI INSIGHTS ============ -->
+  <section class="view" id="view-ai">
+    <div class="pagehead">
+      <h2>AI Insights — browser LLM bridge</h2>
+      <p>No API keys needed. The console builds a precise analysis prompt from the loaded scan; you paste it into the LLM you can already reach in your browser (Copilot, ChatGPT Enterprise, …), then paste the answer back. The console stores it with the scan as its Deep Analysis. When API access is approved later, this same panel switches to direct calls — nothing else changes.</p>
+    </div>
+    <div id="aiBody"><div class="empty"><div class="big">No scan loaded</div>Run a scan from the Overview tab first.</div></div>
+  </section>
+  <!-- ============ DICTIONARY ============ -->
+  <section class="view" id="view-dict">
+    <div class="pagehead">
+      <h2>NFR Dictionary</h2>
+      <p>The shared vocabulary of the guardrail — every term in plain English, tied to the metric it connects to. Use it to keep PRR conversations precise across SRE, dev, and leadership.</p>
+    </div>
+    <input id="dictSearch" class="scanbar" style="width:100%;padding:11px 14px;font-family:var(--sans);font-size:13.5px;border:1px solid var(--line);border-radius:6px" placeholder="Search terms — e.g. circuit breaker, MTTR, quorum…" oninput="renderDict()">
+    <div class="posture" id="dictGrid" style="margin-top:16px"></div>
+  </section>
+
+  <!-- ============ PROMPTS ============ -->
+  <section class="view" id="view-prompts">
+    <div class="pagehead">
+      <h2>Copilot Prompt Library</h2>
+      <p>Paste-ready prompts for VS Code Copilot Chat — with the guardrail MCP server registered, any SRE can run these to scan, explain, fix, and report without writing a prompt from scratch. Copy → paste → done.</p>
+    </div>
+    <div id="promptList"></div>
+  </section>
+
+  <!-- ============ KNOWLEDGE BASE ============ -->
+  <section class="view" id="view-runbooks">
+    <div class="pagehead">
+      <h2>SRE Runbooks</h2>
+      <p>Enterprise-standard operational runbooks - symptom to detection signal to resolution, for the incidents on-call actually gets paged for. Each runbook names the metric and threshold that should have caught it, and the NFR rules that prevent it recurring.</p>
+    </div>
+    <div class="rb-filters" id="rbFilters"></div>
+    <div id="rbList"><div style="font-size:13px;color:var(--muted)">Loading runbooks...</div></div>
+    <div class="note" style="margin-top:16px">A runbook that has never been executed is a document, not a control. Rehearse each one in a drill before relying on it during an incident.</div>
+  </section>
+
+  <section class="view" id="view-kb">
+    <div class="pagehead">
+      <h2>SRE Knowledge Base</h2>
+      <p>The reference shelf for the guardrail — golden signals, SLO math, incident response, resilience patterns, release discipline and capacity formulas. Plain English, with the numbers you need at 3 AM.</p>
+    </div>
+    <input id="kbSearch" style="width:100%;padding:11px 14px;font-family:var(--sans);font-size:13.5px;border:1px solid var(--line);border-radius:6px" placeholder="Search the knowledge base — e.g. burn rate, canary, postmortem, pool sizing…" oninput="renderKB()">
+    <div class="filters" style="margin-top:12px"><span id="kbCats" style="display:contents"></span></div>
+    <div id="kbList" style="margin-top:6px"></div>
+  </section>
+</main>
+
+<button class="fab" id="fab" title="Guardrail Assistant" aria-label="Open Guardrail Assistant">◎</button>
+<div class="chat" id="chat" role="dialog" aria-label="Guardrail Assistant">
+  <div class="chat-h"><b>Guardrail Assistant</b><span class="s">Deterministic — answers from the rule pack, dictionary, prompts &amp; your scan history. No LLM.</span></div>
+  <div class="chat-b" id="chatBody"></div>
+  <div class="qchips" id="qchips"></div>
+  <div class="chat-in"><input id="chatIn" placeholder="Ask — e.g. what is a retry storm?  ·  gaps in security  ·  fix REL-BE-003" aria-label="Ask the assistant"><button class="btn btn-primary" style="padding:8px 14px" onclick="askBot()">Ask</button></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const SEVS = ["blocker","high","medium","low"];
+const SEVCOLOR = {blocker:"b",high:"h",medium:"m",low:"l"};
+let catalog = { pillars:{}, rules:[] };
+let state = { scanId:null, repo:"", repoName:"", findings:[], sevFilter:new Set(SEVS), pillarFilter:new Set(), lensPillar:null };
+
+const $ = id => document.getElementById(id);
+const esc = s => (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const toast = m => { const t=$("toast"); t.textContent=m; t.style.display="block"; setTimeout(()=>t.style.display="none",3200); };
+
+/* ---------- navigation ---------- */
+document.querySelectorAll(".nav-btn").forEach(b=>b.addEventListener("click",()=>{
+  if(b.dataset.view==="reports") refreshScanLog();
+  if(b.dataset.view==="runbooks") loadRunbooks();
+  if(b.dataset.view==="apps"){ loadApps(); populateDropdown(); }
+  document.querySelectorAll(".nav-btn").forEach(x=>x.classList.toggle("active",x===b));
+  document.querySelectorAll(".view").forEach(v=>v.classList.toggle("active",v.id==="view-"+b.dataset.view));
+}));
+function goto(view){ document.querySelector(`.nav-btn[data-view="${view}"]`).click(); }
+
+
+/* showReport / downloadActive replaced by showReport2 / dlActive2 */
+
+
+/* ---------- reports tab: scan log + embedded report panel ---------- */
+let _rScanId = null, _rActive = null, _allScans = [];
+
+async function refreshScanLog(){
+  _allScans = await (await fetch("/api/scans")).json();
+  // populate filter dropdowns
+  const repos   = [...new Set(_allScans.map(s=>s.repo_name))].sort();
+  const branches= [...new Set(_allScans.map(s=>s.branch||"-"))].sort();
+  const rv = $("slogRepo").value, bv = $("slogBranch").value;
+  $("slogRepo").innerHTML   = `<option value="">All repos</option>`   + repos.map(r=>`<option ${r===rv?"selected":""}>${esc(r)}</option>`).join("");
+  $("slogBranch").innerHTML = `<option value="">All branches</option>`+ branches.map(b=>`<option ${b===bv?"selected":""}>${esc(b)}</option>`).join("");
+  renderScanLog();
+}
+
+function renderScanLog(){
+  const rv = $("slogRepo").value, bv = $("slogBranch").value;
+  const rows = _allScans.filter(s=>
+    (!rv || s.repo_name===rv) && (!bv || (s.branch||"-")===bv));
+  $("scanLogBody").innerHTML = rows.length ? rows.map(s=>{
+    const tot = s.blocker+s.high+s.medium+s.low;
+    const rag  = s.blocker>0 ? ["🔴","RED","var(--blocker)"]
+               : s.high>0   ? ["🟠","AMBER","var(--high)"]
+               :               ["🟢","GREEN","var(--ok)"];
+    return `<tr onclick="selectScan(${s.id},this)" class="${s.id===_rScanId?'sel':''}">
+      <td><b>${esc(s.repo_name)}</b></td>
+      <td style="font-family:var(--mono);color:var(--navy)">⎇ ${esc(s.branch||"-")}</td>
+      <td style="font-family:var(--mono);font-size:11px">${esc(s.commit||"")}</td>
+      <td style="font-family:var(--mono);font-size:11.5px">${s.ts.replace("T"," ").slice(0,16)}</td>
+      <td style="font-family:var(--mono)">${s.files_scanned}</td>
+      <td style="font-family:var(--mono);color:var(--crit);font-weight:700">${s.blocker}</td>
+      <td style="font-family:var(--mono);color:var(--high);font-weight:700">${s.high}</td>
+      <td style="font-family:var(--mono);color:var(--medium)">${s.medium}</td>
+      <td style="font-family:var(--mono);color:var(--muted)">${s.low}</td>
+      <td><div class="slog-rag"><span class="slog-dot" style="background:${rag[2]}"></span><span style="color:${rag[2]}">${rag[1]}</span></div></td>
+      <td><div style="display:flex;gap:5px">
+        <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="event.stopPropagation();selectScan(${s.id},this.closest('tr'));showReport2('report-highlevel',document.querySelector('.rtab2.hl'))">Exec</button>
+        <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="event.stopPropagation();selectScan(${s.id},this.closest('tr'));showReport2('report-lowlevel',document.querySelector('.rtab2.ll'))">SRE</button>
+        <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="event.stopPropagation();selectScan(${s.id},this.closest('tr'));showReport2('report-execsheet',document.querySelector('.rtab2.ex'))">Prompts</button>
+      </div></td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="11" style="color:var(--muted);text-align:center;padding:24px">No scans match the filter.</td></tr>`;
+}
+
+function selectScan(id, row){
+  _rScanId = id;
+  document.querySelectorAll("#scanLogBody tr").forEach(r=>r.classList.remove("sel"));
+  row.classList.add("sel");
+  const s = _allScans.find(x=>x.id===id);
+  if(!s) return;
+  $("rphTitle").textContent = `${s.repo_name}  ⎇ ${s.branch||"-"}`;
+  $("rphMeta").textContent  = `${s.ts.replace("T"," ").slice(0,16)} UTC · ${s.files_scanned} files · ${s.blocker+s.high+s.medium+s.low} gaps · scan #${s.id}`;
+  $("rpanel").style.display = "block";
+  $("rPanelEmpty").style.display = "none";
+  // clear active tab styling
+  document.querySelectorAll(".rtab2").forEach(b=>b.classList.remove("on"));
+  $("rframe2").src = "about:blank";
+  _rActive = null;
+  // scroll to panel
+  $("rpanel").scrollIntoView({behavior:"smooth",block:"start"});
+}
+
+function showReport2(kind, btn){
+  if(!_rScanId){ toast("Select a scan first."); return; }
+  _rActive = kind;
+  document.querySelectorAll(".rtab2").forEach(b=>b.classList.remove("on"));
+  if(btn) btn.classList.add("on");
+  $("rspinner").classList.add("on");
+  const f = $("rframe2");
+  f.onload = ()=>{ $("rspinner").classList.remove("on"); };
+  f.src = `/api/scan/${_rScanId}/${kind}`;
+}
+
+function dlActive2(){
+  if(_rActive && _rScanId) window.open(`/api/scan/${_rScanId}/${_rActive}`,"_blank");
+  else toast("Open a report tab first.");
+}
+
+
+/* ---------- application registry (SEAL ID) ---------- */
+$("appForm").addEventListener("submit", async e=>{
+  e.preventDefault();
+  const seal=$("appSealId").value.trim(), name=$("appName").value.trim();
+  const url=$("appUrl").value.trim();
+  const branches=$("appBranches").value.split(",").map(x=>x.trim()).filter(Boolean);
+  if(!seal||!name||!url){ toast("SEAL ID, app name and URL are required."); return; }
+  const res=await fetch("/api/apps",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({seal_id:seal,app_name:name,bitbucket_url:url,branches})});
+  if(!res.ok){ toast((await res.json()).detail||"Register failed"); return; }
+  toast(`${name} (SEAL ${seal}) registered`);
+  $("appSealId").value=""; $("appName").value=""; $("appUrl").value="";
+  loadApps();
+});
+
+async function loadApps(){
+  const apps = await (await fetch("/api/apps")).json();
+  $("appList").innerHTML = apps.length ? apps.map(a=>{
+    const branchCols = a.branches.map(b=>{
+      const L = a.latest[b];
+      if(!L) return `<div class="branchcol">
+        <div class="bname">⎇ ${esc(b)}</div>
+        <div class="bstat">Not scanned yet</div>
+        <span class="brag n">—</span>
+      </div>`;
+      const rag = L.blocker>0?["r","RED"]:L.high>0?["a","AMBER"]:["g","GREEN"];
+      return `<div class="branchcol">
+        <div class="bname">⎇ ${esc(b)}</div>
+        <div class="bstat">${L.ts.replace("T"," ").slice(0,16)} UTC<br><span style="font-family:var(--mono);font-size:10.5px">${esc(L.commit||"")}</span></div>
+        <div class="bsev"><span style="color:var(--crit)">${L.blocker}B</span> <span style="color:var(--high)">${L.high}H</span> <span style="color:var(--medium)">${L.medium}M</span> <span style="color:var(--low)">${L.low}L</span></div>
+        <span class="brag ${rag[0]}">${rag[1]}</span>
+        <div style="display:flex;gap:5px;margin-top:8px">
+          <button class="btn btn-ghost" style="padding:3px 9px;font-size:11px" onclick="openAppScanReport(${L.scan_id},'report-highlevel')">Exec</button>
+          <button class="btn btn-ghost" style="padding:3px 9px;font-size:11px" onclick="openAppScanReport(${L.scan_id},'report-lowlevel')">SRE</button>
+          <button class="btn btn-ghost" style="padding:3px 9px;font-size:11px" onclick="openAppScanReport(${L.scan_id},'report-execsheet')">Prompts</button>
+        </div>
+      </div>`;
+    }).join("");
+    return `<div class="appcard" data-appid="${a.id}">
+      <div class="appcard-head">
+        <span class="seal">SEAL ${esc(a.seal_id)}</span>
+        <span class="aname">${esc(a.app_name)}</span>
+        <span class="aurl">${esc(a.bitbucket_url)}</span>
+        <span style="margin-left:auto;display:flex;gap:8px">
+          <button class="btn btn-primary" style="padding:7px 14px;font-size:12.5px" id="abtn${a.id}" onclick="scanApp(${a.id})">Sync &amp; scan all branches</button>
+          <button class="btn btn-ghost" style="padding:7px 12px;font-size:12.5px" onclick="viewAppHistory('${esc(a.seal_id)}','${esc(a.app_name)}')">History</button>
+          <button class="btn btn-ghost" style="padding:7px 12px;font-size:12.5px" onclick="removeApp(${a.id},'${esc(a.app_name)}')">Remove</button>
+        </span>
+      </div>
+      <div class="branch-grid">${branchCols}</div>
+    </div>`;
+  }).join("") : `<div style="font-size:13px;color:var(--muted)">No applications registered yet.</div>`;
+}
+
+async function scanApp(id){
+  const btn=$("abtn"+id); btn.disabled=true; btn.textContent="Syncing from Bitbucket…";
+  try{
+    const res=await fetch(`/api/apps/${id}/scan`,{method:"POST"});
+    const out=await res.json();
+    if(!res.ok) throw new Error(out.detail||"Scan failed");
+    const ok=out.scanned.length, err=(out.errors||[]).length;
+    toast(`${out.app} (SEAL ${out.seal_id}): ${ok} branch scan(s) complete${err?`, ${err} error(s)`:""}`);
+    await loadApps(); await loadHistory(); await refreshScanLog();
+    if(out.scanned.length) await loadScan(out.scanned[0].scan_id);
+  }catch(e){ toast(e.message); }
+  finally{ btn.disabled=false; btn.textContent="Sync & scan all branches"; }
+}
+
+async function viewAppHistory(sealId, appName){
+  const d = await (await fetch(`/api/apps/${sealId}/history`)).json();
+  if(!d.scans||!d.scans.length){ toast(`No scans yet for ${appName}`); return; }
+  // load most recent and switch to reports tab
+  await loadScan(d.scans[0].scan_id);
+  goto("reports"); refreshScanLog();
+}
+
+function openAppScanReport(scanId, kind){
+  // switch to Reports tab and open the specific scan + report
+  _rScanId = scanId;
+  const s = _allScans.find(x=>x.id===scanId);
+  if(s){
+    $("rphTitle").textContent = `${s.repo_name}  ⎇ ${s.branch||"-"}`;
+    $("rphMeta").textContent  = `${s.ts.replace("T"," ").slice(0,16)} UTC · scan #${s.id}`;
+    $("rpanel").style.display="block"; $("rPanelEmpty").style.display="none";
+  }
+  goto("reports");
+  setTimeout(()=>{
+    document.querySelectorAll(".rtab2").forEach(b=>b.classList.remove("on"));
+    showReport2(kind, document.querySelector(
+      kind==="report-highlevel"?".rtab2.hl":kind==="report-lowlevel"?".rtab2.ll":".rtab2.ex"));
+  },300);
+}
+
+async function removeApp(id,name){
+  if(!confirm(`Remove ${name} from the registry? Scan history is kept.`)) return;
+  await fetch(`/api/apps/${id}`,{method:"DELETE"}); loadApps();
+}
+
+/* ---------- repo bundle ---------- */
+$("repoForm").addEventListener("submit", async e=>{
+  e.preventDefault();
+  const url=$("repoUrl").value.trim();
+  const branches=$("repoBranches").value.split(",").map(x=>x.trim()).filter(Boolean);
+  if(!url) return;
+  const res=await fetch("/api/repos",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url,branches})});
+  if(!res.ok){ toast((await res.json()).detail||"Register failed"); return; }
+  toast("Repository registered"); $("repoUrl").value="";
+  loadRepos();
+});
+
+async function loadRepos(){
+  const repos=await (await fetch("/api/repos")).json();
+  $("repoList").innerHTML = repos.map(r=>{
+    const rows=r.branches.map(b=>{
+      const L=r.latest[b];
+      const cells = L
+        ? `<td class="mono">${L.ts.replace("T"," ").slice(0,16)}</td><td class="mono">${esc(L.commit||"")}</td>
+           <td class="mono" style="color:var(--blocker)">${L.blocker}</td><td class="mono" style="color:var(--high)">${L.high}</td>
+           <td class="mono" style="color:var(--medium)">${L.medium}</td><td class="mono" style="color:var(--low)">${L.low}</td>
+           <td><button class="btn btn-ghost" style="padding:4px 12px;font-size:12px" onclick="loadScan(${L.scan_id});goto('overview')">Open</button></td>`
+        : `<td class="mono" colspan="6" style="color:var(--muted)">not scanned yet</td><td></td>`;
+      return `<tr><td class="mono" style="color:var(--navy);font-weight:600">⎇ ${esc(b)}</td>${cells}</tr>`;
+    }).join("");
+    return `<div class="panel" style="margin-bottom:14px;padding:18px 22px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <h3 style="font-size:15px">${esc(r.name)}</h3>
+        <span class="mono" style="font-family:var(--mono);font-size:11.5px;color:var(--muted)">${esc(r.url)}</span>
+        <span style="margin-left:auto;display:flex;gap:8px">
+          <button class="btn btn-primary" style="padding:7px 14px;font-size:12.5px" id="rbtn${r.id}" onclick="scanRepo(${r.id})">Sync &amp; scan all branches</button>
+          <button class="btn btn-ghost" style="padding:7px 12px;font-size:12.5px" onclick="removeRepo(${r.id},'${esc(r.name)}')">Remove</button>
+        </span>
+      </div>
+      <table><thead><tr><th>Branch</th><th>Last scan (UTC)</th><th>Commit</th><th>🔴 B</th><th>🟠 H</th><th>🟡 M</th><th>⚪ L</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table>
+      ${branchDrift(r)}
+    </div>`;
+  }).join("") || `<div style="font-size:13px;color:var(--muted)">No repositories registered yet.</div>`;
+}
+
+function branchDrift(r){
+  const scanned=r.branches.filter(b=>r.latest[b]);
+  if(scanned.length<2) return "";
+  const tot=b=>{const L=r.latest[b];return L.blocker+L.high+L.medium+L.low;};
+  const parts=scanned.map(b=>`<b>${esc(b)}</b>: ${tot(b)} (${r.latest[b].blocker} blocker)`);
+  const drift=tot(scanned[0])-tot(scanned[scanned.length-1]);
+  const msg = drift>0
+    ? `⚠ ${drift} more gap(s) on <b>${esc(scanned[0])}</b> than <b>${esc(scanned[scanned.length-1])}</b> — new NFR debt is heading toward release.`
+    : drift<0 ? `✓ <b>${esc(scanned[0])}</b> carries ${-drift} fewer gap(s) than <b>${esc(scanned[scanned.length-1])}</b> — debt is being paid down before release.`
+    : `Branches are level — no NFR drift between ${esc(scanned[0])} and ${esc(scanned[scanned.length-1])}.`;
+  return `<div class="lensq" style="margin-top:14px"><b>Branch drift</b>${parts.join(" · ")}<br>${msg}</div>`;
+}
+
+async function scanRepo(id){
+  const btn=$("rbtn"+id); btn.disabled=true; btn.textContent="Syncing & scanning…";
+  try{
+    const res=await fetch(`/api/repos/${id}/scan`,{method:"POST"});
+    const out=await res.json();
+    if(!res.ok) throw new Error(out.detail||"Scan failed");
+    const ok=out.scanned.length, err=(out.errors||[]).length;
+    toast(`${out.repo}: ${ok} branch scan(s) complete${err?`, ${err} failed (${out.errors[0].branch}: ${out.errors[0].error.slice(0,80)})`:""}`);
+    await loadHistory(); await loadRepos();
+    if(out.scanned.length) await loadScan(out.scanned[0].scan_id);
+  }catch(e){ toast(e.message); }
+  finally{ btn.disabled=false; btn.textContent="Sync & scan all branches"; }
+}
+
+async function removeRepo(id,name){
+  if(!confirm(`Remove ${name} from the bundle registry? Scan history is kept.`)) return;
+  await fetch(`/api/repos/${id}`,{method:"DELETE"}); loadRepos();
+}
+
+/* ---------- bootstrap ---------- */
+async function init(){
+  catalog = await (await fetch("/api/rules")).json();
+  dict = (await (await fetch("/api/dictionary")).json()).terms;
+  promptLib = (await (await fetch("/api/prompts")).json()).prompts;
+  kb = (await (await fetch("/api/kb")).json()).entries;
+  await loadAICfg();
+  renderDict(); renderPrompts(); renderKB(); renderLanding();
+  state.lensPillar = Object.keys(catalog.pillars)[0] || null;
+  renderLens(); loadHistory(); loadRepos(); loadApps(); populateDropdown(); initAuth();
+}
+
+async function loadHistory(){
+  const scans = await (await fetch("/api/scans")).json();
+  $("hist").innerHTML = scans.map(s=>`
+    <button class="hist-item ${s.id===state.scanId?"active":""}" onclick="loadScan(${s.id})">
+      <div class="r">${esc(s.repo_name)} <span style="color:var(--gold);font-family:var(--mono);font-size:10.5px">⎇ ${esc(s.branch||"-")}</span></div>
+      <div class="m">${s.ts.replace("T"," ").slice(0,16)}${s.commit?" · "+esc(s.commit):""} · ${s.blocker}B ${s.high}H ${s.medium}M ${s.low}L</div>
+    </button>`).join("") || `<div style="padding:10px 22px;font-size:12px;color:#6B84A6">No scans yet</div>`;
+  renderTrend(scans); allScans=scans; renderHistory(); if(_allScans.length!==scans.length||true) _allScans=scans; renderScanLog();
+}
+
+/* ---------- scanning ---------- */
+$("scanForm").addEventListener("submit", async e=>{
+  e.preventDefault();
+  const path=$("repoPath").value.trim(); if(!path) return;
+  const btn=$("scanBtn"); btn.disabled=true; btn.textContent="Scanning…";
+  try{
+    const res=await fetch("/api/scan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({repo_path:path})});
+    if(!res.ok) throw new Error((await res.json()).detail||"Scan failed");
+    const out=await res.json();
+    toast(`Scan complete — ${out.total} gap(s) across ${out.files_scanned} files`);
+    await loadHistory(); await loadScan(out.scan_id);
+  }catch(err){ toast(err.message); }
+  finally{ btn.disabled=false; btn.textContent="Run scan"; }
+});
+
+async function loadScan(id){
+  const s=await (await fetch(`/api/scan/${id}/findings`)).json();
+  state.scanId=id; state.repo=s.repo; state.repoName=s.repo_name; state.findings=s.findings;
+  state.sevFilter=new Set(SEVS);
+  state.pillarFilter=new Set(Object.keys(catalog.pillars));
+  $("gateRepo").textContent=s.repo_name;
+  $("gateMeta").textContent=`⎇ ${s.branch||"-"}${s.commit?" @ "+s.commit:""} · ${s.ts.replace("T"," ").slice(0,16)} UTC · ${s.files_scanned} files · ${s.findings.length} gaps`;
+  $("ovContent").hidden=false; $("ovEmpty").style.display="none"; $("fEmpty").style.display="none";
+  state.branch=s.branch; renderContext(); renderViz(); renderOverview(); renderFindings(); renderRecs(); renderAI(); renderLens(); loadReport(); loadHistory();
+}
+
+/* ---------- overview ---------- */
+function counts(fs){ return Object.fromEntries(SEVS.map(v=>[v, fs.filter(f=>f.severity===v).length])); }
+
+function renderOverview(){
+  const c = counts(state.findings), total = state.findings.length;
+  $("strip").innerHTML = total===0
+    ? `<div class="clear">NO GAPS DETECTED — CLEAN SCAN</div>`
+    : SEVS.map(v=>`<button class="seg ${v}" data-c="${c[v]}" style="flex-grow:${c[v]}"
+        onclick="state.sevFilter=new Set(['${v}']);renderFindings();goto('findings')">${c[v]} ${v.toUpperCase()}</button>`).join("");
+  $("cards").innerHTML = [["Total gaps",total],["Blockers",c.blocker],["High",c.high],["Medium",c.medium],["Low",c.low]]
+    .map(([k,v])=>`<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+
+  $("posture").innerHTML = Object.entries(catalog.pillars).map(([key,p])=>{
+    const fs = state.findings.filter(f=>f.pillar===key);
+    const pc = counts(fs);
+    const status = fs.length ? `<span class="pc gap">${fs.length} gap${fs.length>1?"s":""}</span>` : `<span class="pc ok">clean</span>`;
+    const mini = fs.length ? SEVS.map(v=>`<i class="${SEVCOLOR[v]}" style="flex-grow:${pc[v]}"></i>`).join("") : "";
+    return `<button class="pcard" onclick="state.lensPillar='${key}';renderLens();goto('lens')">
+      <div class="ph"><span class="pn">${esc(p.name)}</span>${status}</div>
+      <div class="po">${esc(p.objective)}</div>
+      <div class="mini">${mini}</div>
+    </button>`;
+  }).join("");
+
+  $("topRisks").innerHTML = state.findings.slice(0,5).map((f,i)=>findingCard(f,"tr"+i)).join("")
+    || `<div style="font-size:13px;color:var(--ok);font-weight:600">No gaps detected in this scan.</div>`;
+}
+
+/* ---------- NFR lens ---------- */
+function renderLens(){
+  const keys = Object.keys(catalog.pillars);
+  if(!keys.length) return;
+  if(!state.lensPillar) state.lensPillar = keys[0];
+  $("lensTabs").innerHTML = keys.map(k=>{
+    const n = state.findings.filter(f=>f.pillar===k).length;
+    return `<button class="ltab ${state.lensPillar===k?"on":""}" onclick="state.lensPillar='${k}';renderLens()">
+      ${esc(catalog.pillars[k].name)} ${state.scanId!==null?`<span class="cnt">${n?n+" gaps":"clean"}</span>`:""}</button>`;
+  }).join("");
+
+  const key = state.lensPillar, p = catalog.pillars[key];
+  const rules = catalog.rules.filter(r=>r.pillar===key);
+  const gaps  = state.findings.filter(f=>f.pillar===key);
+  const gapByRule = {};
+  gaps.forEach(f=>{ (gapByRule[f.rule_id]=gapByRule[f.rule_id]||[]).push(f); });
+
+  const ruleRows = rules.map(r=>{
+    const hit = gapByRule[r.id];
+    const st = state.scanId===null ? `<span class="st na">— no scan</span>`
+             : hit ? `<span class="st gap">● ${hit.length} gap${hit.length>1?"s":""}</span>`
+                   : `<span class="st ok">○ clean</span>`;
+    return `<tr><td class="mono">${r.id}</td><td><b>${esc(r.title)}</b><br><span style="color:var(--muted);font-size:12px">${esc(r.why)}</span></td>
+      <td class="mono">${r.layer}</td><td><span class="sev ${r.severity}">${r.severity}</span></td><td>${st}</td></tr>`;
+  }).join("");
+
+  const recs = gaps.length ? gaps.map((f,i)=>findingCard(f,"lx"+i)).join("")
+    : (state.scanId===null
+        ? `<div style="font-size:13px;color:var(--muted)">Run a scan to see this pillar's recommendations for a specific repo.</div>`
+        : `<div style="font-size:13px;color:var(--ok);font-weight:600">This pillar is clean for ${esc(state.repoName)} — nothing to remediate.</div>`);
+
+  $("lensPanel").innerHTML = `
+    <div class="panel">
+      <h3>${esc(p.name)}</h3>
+      <p class="lede">${esc(p.objective)}</p>
+      <div class="lens-grid">
+        <div class="kv"><h4>What this lens checks</h4><p>${esc(p.what_it_checks)}</p></div>
+        <div class="kv"><h4>Production metrics it protects</h4>${(p.key_metrics||[]).map(m=>`<span class="metric-chip">${esc(m)}</span>`).join("")}</div>
+      </div>
+      <div class="lensq"><b>The SRE question</b>${esc(p.sre_lens)}</div>
+      <div class="sect">Rule coverage in this pillar (${rules.length} rules)</div>
+      <table><thead><tr><th>Rule</th><th>Check &amp; why it matters</th><th>Layer</th><th>Sev</th><th>Status ${state.scanId!==null?`— ${esc(state.repoName)}`:""}</th></tr></thead>
+      <tbody>${ruleRows}</tbody></table>
+      <div class="sect">Recommendations${state.scanId!==null?` for ${esc(state.repoName)}`:""}</div>
+      ${recs}
+    </div>`;
+}
+
+/* ---------- findings ---------- */
+function findingCard(f, id){
+  const file=f.where.split(" ")[0], isFile=!f.where.startsWith("repo-wide");
+  const vsc=isFile?`<a class="vsc" href="vscode://file/${state.repo}/${file}${f.line?":"+f.line:""}">Open in VS Code ↗</a>`:"";
+  return `<div class="f ${f.severity}" id="${id}">
+    <button class="f-head" onclick="document.getElementById('${id}').classList.toggle('open')">
+      <span class="rid">${f.rule_id}</span><span class="f-title">${esc(f.title)}</span>
+      <span class="tag">${f.layer}</span><span class="tag">${f.pillar}</span>
+      <span class="sev ${f.severity}">${f.severity}</span>
+    </button>
+    <div class="f-body">
+      <h4>Where</h4><div class="loc"><code>${esc(f.where)}${f.line?":"+f.line:""}</code>${vsc}</div>
+      ${f.evidence?`<h4>Evidence</h4><pre>${esc(f.evidence)}</pre>`:""}
+      <h4>Why it matters</h4><p>${esc(f.why)}</p>
+      <h4>How to fix</h4><pre>${esc(f.fix)}</pre>
+    </div></div>`;
+}
+
+function tog(set,v){ set.has(v)?set.delete(v):set.add(v); }
+
+/* ---------- reports ---------- */
+async function loadReport(){
+  try{
+    const r=await fetch(`/api/scan/${state.scanId}/report.md`);
+    $("reportPre").textContent = r.ok ? await r.text() : "Report file not found — re-run the scan.";
+  }catch(e){ $("reportPre").textContent="Could not load report."; }
+}
+function renderTrend(scans){
+  $("trendBody").innerHTML = scans.map(s=>{
+    const tot=s.blocker+s.high+s.medium+s.low||1;
+    return `<tr><td><b>${esc(s.repo_name)}</b></td><td class="mono" style="color:var(--navy)">⎇ ${esc(s.branch||"-")}</td><td class="mono">${s.ts.replace("T"," ").slice(0,16)}</td>
+      <td class="mono">${s.files_scanned}</td><td class="mono">${s.blocker}</td><td class="mono">${s.high}</td>
+      <td class="mono">${s.medium}</td><td class="mono">${s.low}</td>
+      <td><div class="trendbar">${SEVS.map(v=>`<i class="mini ${SEVCOLOR[v]}" style="background:var(--${v});flex-grow:${s[v]/tot}"></i>`).join("")}</div></td></tr>`;
+  }).join("") || `<tr><td colspan="9" style="color:var(--muted)">No scans yet.</td></tr>`;
+}
+
+function dl(kind){ state.scanId!==null ? window.open(`/api/scan/${state.scanId}/${kind}`,"_blank") : toast("Run or select a scan first."); }
+
+
+/* ---------- gaps grouped by category ---------- */
+function renderFindings(){
+  $("sevChips").innerHTML = SEVS.map(v=>`<button class="chip ${state.sevFilter.has(v)?"on":""}"
+    onclick="tog(state.sevFilter,'${v}');renderFindings()">${v} · ${state.findings.filter(f=>f.severity===v).length}</button>`).join("");
+  const pillars=[...new Set(state.findings.map(f=>f.pillar))].sort();
+  $("pillarChips").innerHTML = pillars.map(p=>`<button class="chip ${state.pillarFilter.has(p)?"on":""}"
+    onclick="tog(state.pillarFilter,'${p}');renderFindings()">${p} · ${state.findings.filter(f=>f.pillar===p).length}</button>`).join("");
+  const shown = state.findings.filter(f=>state.sevFilter.has(f.severity)&&state.pillarFilter.has(f.pillar));
+  const byP = {};
+  shown.forEach(f=>{ (byP[f.pillar]=byP[f.pillar]||[]).push(f); });
+  $("findings").innerHTML = Object.entries(byP).map(([k,fs],gi)=>{
+    const meta = catalog.pillars[k]||{name:k};
+    return `<div class="sect" style="margin-top:${gi?26:6}px">${esc(meta.name||k)} — ${fs.length} gap${fs.length>1?"s":""}</div>`
+      + fs.map((f,i)=>findingCard(f,"g"+gi+"_"+i)).join("");
+  }).join("") || (state.scanId!==null?`<div style="font-size:13px;color:var(--muted)">No findings match the current filters.</div>`:"");
+}
+
+/* ---------- recommendations ---------- */
+function renderRecs(){
+  if(state.scanId===null) return;
+  const byRule={};
+  state.findings.forEach(f=>{ (byRule[f.rule_id]=byRule[f.rule_id]||[]).push(f); });
+  const order={blocker:0,high:1,medium:2,low:3};
+  const groups=Object.values(byRule).sort((a,b)=>order[a[0].severity]-order[b[0].severity]);
+  window._recGroups=groups;
+  const seq = groups.map((g,i)=>`${i+1}. <b>${g[0].rule_id}</b> ${esc(g[0].title)} <span class="sev ${g[0].severity}">${g[0].severity}</span>`).join("<br>");
+  $("recsBody").innerHTML = `
+    <div class="panel" style="margin-bottom:14px"><div class="sect" style="margin-top:0">Fix sequencing — ${esc(state.repoName)} ⎇ ${esc(state.findings.length?state.branch||"":"")} (blockers first)</div>
+    <p style="font-size:13px;line-height:2">${seq}</p></div>`
+    + groups.map((g,i)=>{
+      const f=g[0];
+      const locs=g.map(x=>`<code style="font-family:var(--mono);font-size:11px;background:#EAEFF4;padding:2px 6px;border-radius:3px">${esc(x.where.split(" ")[0])}${x.line?":"+x.line:""}</code>`).join(" ");
+      return `<div class="f ${f.severity}" style="margin-bottom:8px"><div style="padding:14px 16px">
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <span class="rid">${f.rule_id}</span><span class="f-title">${esc(f.title)}</span>
+          <span class="tag">${g.length} occurrence${g.length>1?"s":""}</span>
+          <span class="sev ${f.severity}">${f.severity}</span>
+          <button class="copybtn" style="margin-left:auto" onclick="copyFix(this,${i})">Copy fix</button>
+        </div>
+        <div style="margin-top:8px;font-size:12px;color:var(--muted)">${locs}</div>
+        <h4 style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:12px 0 6px">Why</h4>
+        <p style="font-size:13px;line-height:1.55">${esc(f.why)}</p>
+        <h4 style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:12px 0 6px">How to fix</h4>
+        <pre>${esc(f.fix)}</pre>
+      </div></div>`;
+    }).join("");
+}
+
+/* ---------- history ---------- */
+let allScans=[];
+function renderHistory(){
+  const repoSel=$("histRepo"), brSel=$("histBranch");
+  const repos=[...new Set(allScans.map(s=>s.repo_name))].sort();
+  const branches=[...new Set(allScans.map(s=>s.branch||"-"))].sort();
+  const rv=repoSel.value, bv=brSel.value;
+  repoSel.innerHTML=`<option value="">All</option>`+repos.map(r=>`<option ${r===rv?"selected":""}>${esc(r)}</option>`).join("");
+  brSel.innerHTML=`<option value="">All</option>`+branches.map(b=>`<option ${b===bv?"selected":""}>${esc(b)}</option>`).join("");
+  const rows=allScans.filter(s=>(!rv||s.repo_name===rv)&&(!bv||(s.branch||"-")===bv));
+  $("histBody").innerHTML = rows.map(s=>`<tr>
+    <td class="mono">${s.id}</td><td><b>${esc(s.repo_name)}</b></td>
+    <td class="mono" style="color:var(--navy)">⎇ ${esc(s.branch||"-")}</td>
+    <td class="mono">${esc(s.commit||"")}</td>
+    <td class="mono">${s.ts.replace("T"," ").slice(0,16)}</td><td class="mono">${s.files_scanned}</td>
+    <td class="mono" style="color:var(--blocker)">${s.blocker}</td><td class="mono" style="color:var(--high)">${s.high}</td>
+    <td class="mono" style="color:var(--medium)">${s.medium}</td><td class="mono" style="color:var(--low)">${s.low}</td>
+    <td><button class="btn btn-ghost" style="padding:4px 12px;font-size:12px" onclick="loadScan(${s.id});goto('overview')">Open</button></td></tr>`).join("")
+    || `<tr><td colspan="11" style="color:var(--muted)">No scans match.</td></tr>`;
+}
+
+/* ---------- dictionary ---------- */
+let dict=[];
+function renderDict(){
+  const q=($("dictSearch").value||"").toLowerCase();
+  const shown=dict.filter(d=>!q||d.term.toLowerCase().includes(q)||d.plain.toLowerCase().includes(q)||(d.pillar||"").includes(q));
+  $("dictGrid").innerHTML = shown.map(d=>`<div class="pcard" style="cursor:default">
+    <div class="ph"><span class="pn">${esc(d.term)}</span><span class="tag">${esc(d.pillar||"")}</span></div>
+    <div class="po">${esc(d.plain)}</div>
+    <div style="margin-top:9px"><span class="metric-chip">${esc(d.metric)}</span></div>
+  </div>`).join("") || `<div style="font-size:13px;color:var(--muted)">No terms match "${esc(q)}".</div>`;
+}
+
+/* ---------- prompts ---------- */
+let promptLib=[];
+function renderPrompts(){
+  $("promptList").innerHTML = promptLib.map(pr=>`<div class="panel" style="margin-bottom:12px;padding:18px 22px">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span class="rid">${pr.id}</span><h3 style="font-size:14.5px">${esc(pr.title)}</h3>
+      ${pr.standalone?`<span class="tag">no MCP needed</span>`:`<span class="tag">uses MCP server</span>`}
+      <button class="copybtn" style="margin-left:auto" onclick="copyPrompt(this,'${pr.id}')">Copy prompt</button>
+    </div>
+    <p style="font-size:12.5px;color:var(--muted);margin-top:6px"><b>When:</b> ${esc(pr.when)}</p>
+    <pre style="margin-top:10px">${esc(pr.prompt)}</pre>
+  </div>`).join("");
+}
+
+function copyFix(btn,i){ copyText(btn, window._recGroups[i][0].fix); }
+function copyPrompt(btn,id){ const pr=promptLib.find(x=>x.id===id); if(pr) copyText(btn, pr.prompt); }
+function copyText(btn,text){
+  navigator.clipboard.writeText(text).then(()=>{ const o=btn.textContent; btn.textContent="Copied ✓"; setTimeout(()=>btn.textContent=o,1600); });
+}
+
+/* ---------- Guardrail Assistant (deterministic retrieval — no LLM) ---------- */
+$("fab").addEventListener("click",()=>{ $("chat").classList.toggle("open"); if(!$("chatBody").children.length) botSay(
+  "Hi — I answer from the <b>rule pack</b>, <b>NFR dictionary</b>, <b>prompt library</b> and your <b>scan history</b>. Try the chips below, or ask about any rule id, term, or pillar."); });
+const CHIPS=["what is a retry storm?","gaps in security","fix REL-BE-003","which prompt for PRR report?","status of last scan"];
+$("qchips").innerHTML=CHIPS.map(c=>`<button class="qchip" onclick="$('chatIn').value='${c}';askBot()">${c}</button>`).join("");
+$("chatIn").addEventListener("keydown",e=>{ if(e.key==="Enter") askBot(); });
+
+function botSay(html){ const d=document.createElement("div"); d.className="msg a"; d.innerHTML=html; $("chatBody").appendChild(d); $("chatBody").scrollTop=1e9; }
+function userSay(txt){ const d=document.createElement("div"); d.className="msg u"; d.textContent=txt; $("chatBody").appendChild(d); }
+
+function askBot(){
+  const q=$("chatIn").value.trim(); if(!q) return;
+  userSay(q); $("chatIn").value="";
+  botSay(answer(q.toLowerCase()));
+}
+
+function answer(q){
+  // 1. explicit rule id
+  const rid=q.toUpperCase().match(/[A-Z]{3,4}-[A-Z]{2,3}-\d{3}/);
+  if(rid){
+    const r=catalog.rules.find(x=>x.id===rid[0]);
+    if(r){
+      const hits=state.findings.filter(f=>f.rule_id===r.id);
+      return `<b>${r.id} — ${esc(r.title)}</b> · ${r.pillar} / ${r.layer} / ${r.severity}<br>${esc(r.why)}`
+        +(hits.length?`<br><b>In ${esc(state.repoName)}:</b> ${hits.length} occurrence(s) — ${hits.slice(0,3).map(h=>`<code>${esc(h.where.split(" ")[0])}${h.line?":"+h.line:""}</code>`).join(" ")}`:"")
+        +`<pre>${esc(r.fix)}</pre>`;
+    }
+    return `I don't have a rule <code>${rid[0]}</code> in the pack.`;
+  }
+  // 2. scan status / history intents
+  if(/\b(status|last scan|latest|history|summary)\b/.test(q)){
+    if(state.scanId===null) return "No scan is loaded yet — run one from <b>Overview</b> or pick one in the history rail.";
+    const c={blocker:0,high:0,medium:0,low:0}; state.findings.forEach(f=>c[f.severity]++);
+    return `<b>${esc(state.repoName)}</b> ⎇ ${esc(state.branch||"-")} — ${state.findings.length} gaps: `
+      +`<span class="sev blocker">${c.blocker} blocker</span>, <span class="sev high">${c.high} high</span>, `
+      +`<span class="sev medium">${c.medium} medium</span>, <span class="sev low">${c.low} low</span>. `
+      +`Worst first: ${state.findings.slice(0,3).map(f=>`<code>${f.rule_id}</code>`).join(" ")}. See <b>Recommendations</b> for the fix order.`;
+  }
+  // 3. gaps in <pillar>
+  const pk=Object.keys(catalog.pillars).find(k=>q.includes(k)||q.includes((catalog.pillars[k].name||"").toLowerCase().split(" ")[0]));
+  if(pk && /gap|issue|finding|check|status|clean/.test(q)){
+    const fs=state.findings.filter(f=>f.pillar===pk);
+    if(state.scanId===null) return `Load a scan first — then I can report <b>${esc(catalog.pillars[pk].name)}</b> gaps for that repo. The lens itself: ${esc(catalog.pillars[pk].objective)}`;
+    return fs.length
+      ? `<b>${esc(catalog.pillars[pk].name)}</b> — ${fs.length} gap(s) in ${esc(state.repoName)}:<br>`+fs.map(f=>`• <code>${f.rule_id}</code> ${esc(f.title)} — <code>${esc(f.where.split(" ")[0])}${f.line?":"+f.line:""}</code>`).join("<br>")
+      : `<b>${esc(catalog.pillars[pk].name)}</b> is clean in ${esc(state.repoName)} ✓`;
+  }
+  // 4. prompt intents
+  if(/prompt|copilot/.test(q)){
+    const scored=promptLib.map(pr=>({pr,s:score(q,pr.title+" "+pr.when)})).sort((a,b)=>b.s-a.s);
+    const best=scored.slice(0,2).filter(x=>x.s>0);
+    return best.length
+      ? "Best matching prompts:<br>"+best.map(x=>`• <b>${x.pr.id}</b> ${esc(x.pr.title)} — <i>${esc(x.pr.when)}</i>`).join("<br>")+"<br>Open the <b>Copilot Prompts</b> tab to copy."
+      : "Open the <b>Copilot Prompts</b> tab — 12 paste-ready prompts from full scans to PRR reports.";
+  }
+  // 5. dictionary
+  const dScored=dict.map(d=>({d,s:score(q,d.term+" "+d.plain)})).sort((a,b)=>b.s-a.s);
+  if(dScored[0] && dScored[0].s>=2){
+    const d=dScored[0].d;
+    return `<b>${esc(d.term)}</b> <span class="tag">${esc(d.pillar||"")}</span><br>${esc(d.plain)}<br><span class="metric-chip">${esc(d.metric)}</span>`;
+  }
+  // 6. rules by keyword
+  const rScored=catalog.rules.map(r=>({r,s:score(q,r.title+" "+r.why)})).sort((a,b)=>b.s-a.s);
+  if(rScored[0] && rScored[0].s>=2){
+    const r=rScored[0].r;
+    return `Closest rule: <b>${r.id} — ${esc(r.title)}</b> (${r.severity})<br>${esc(r.why)}<br>Ask "<code>fix ${r.id}</code>" for the remediation.`;
+  }
+  // 7. pillar explainer
+  if(pk) return `<b>${esc(catalog.pillars[pk].name)}</b><br>${esc(catalog.pillars[pk].objective)}<br><i>${esc(catalog.pillars[pk].sre_lens)}</i>`;
+  return "I couldn't match that. Try a rule id (<code>REL-BE-003</code>), a term (\"retry storm\"), \"gaps in &lt;pillar&gt;\", \"status of last scan\", or \"which prompt for …\".";
+}
+function score(q,text){
+  const words=q.split(/[^a-z0-9+]+/).filter(w=>w.length>2);
+  const t=text.toLowerCase();
+  return words.reduce((s,w)=>s+(t.includes(w)?1:0),0);
+}
+
+
+/* ---------- AI Insights (browser-LLM bridge, keyless) ---------- */
+function renderAI(){
+  if(state.scanId===null) return;
+  $("aiBody").innerHTML = `
+    <div class="panel" style="margin-bottom:14px">
+      <div class="sect" style="margin-top:0">Step 1 — Build &amp; copy the analysis prompt</div>
+      <label style="font-size:12.5px;display:flex;gap:8px;align-items:center;margin-bottom:10px">
+        <input type="checkbox" id="aiEvidence">
+        Include code evidence snippets <span style="color:var(--muted)">(default OFF — with it off, only rule ids, titles, paths and severities leave this machine; no source code)</span>
+      </label>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+        <button class="btn btn-primary" onclick="buildAIPrompt()">Build prompt for ${esc(state.repoName)} ⎇ ${esc(state.branch||"-")}</button>
+        <button class="copybtn" id="aiCopyBtn" style="display:none" onclick="copyText(this, $('aiPrompt').value)">Copy prompt</button>
+        <button class="btn btn-primary" id="aiGenBtn" style="display:none;padding:8px 16px;font-size:12.5px" onclick="genAI()">Generate via <span id="aiGenName">internal LLM</span></button>
+      </div>
+      <textarea id="aiPrompt" readonly style="width:100%;height:180px;font-family:var(--mono);font-size:11.5px;border:1px solid var(--line);border-radius:6px;padding:10px;display:none;background:#FBFCFD"></textarea>
+    </div>
+    <div class="panel" style="margin-bottom:14px">
+      <div class="sect" style="margin-top:0">Step 2 — Paste the LLM's answer back</div>
+      <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center">
+        <span style="font-size:12.5px;color:var(--muted)">Source</span>
+        <select id="aiSource" class="chip" style="appearance:auto">
+          <option>Copilot (browser)</option><option>ChatGPT Enterprise</option><option>Gemini</option><option>Other browser LLM</option>
+        </select>
+        <button class="btn btn-primary" style="margin-left:auto" onclick="saveAnalysis()">Save analysis to this scan</button>
+      </div>
+      <textarea id="aiAnswer" placeholder="Paste the full markdown answer from your browser LLM here…" style="width:100%;height:160px;font-family:var(--mono);font-size:11.5px;border:1px solid var(--line);border-radius:6px;padding:10px"></textarea>
+    </div>
+    <div class="panel" id="aiSaved"><div class="sect" style="margin-top:0">Deep Analysis on record</div>
+      <div id="aiSavedBody" style="font-size:13px;color:var(--muted)">None yet for this scan.</div></div>`;
+  if(aiCfg.enabled){ $("aiGenBtn").style.display="inline-block"; $("aiGenName").textContent=aiCfg.name; }
+  loadAnalysis();
+}
+
+function buildAIPrompt(){
+  const withEv = $("aiEvidence").checked;
+  const c={blocker:0,high:0,medium:0,low:0}; state.findings.forEach(f=>c[f.severity]++);
+  const lines = state.findings.map(f=>{
+    const loc=f.where.split(" ")[0]+(f.line?":"+f.line:"");
+    return `- [${f.severity.toUpperCase()}] ${f.rule_id} ${f.title} | pillar=${f.pillar} layer=${f.layer} | ${loc}`
+      + (withEv&&f.evidence?` | evidence: ${f.evidence.slice(0,120)}`:"");
+  }).join("\n");
+  $("aiPrompt").value =
+`You are a senior SRE reviewer. Below are the machine-scan NFR findings for service "${state.repoName}" (branch ${state.branch||"-"}), severity counts: ${c.blocker} blocker, ${c.high} high, ${c.medium} medium, ${c.low} low. ${withEv?"":"No source code is included — reason from the finding metadata only."}
+
+FINDINGS:
+${lines}
+
+Produce a "Deep Analysis" in markdown with exactly these sections:
+1. Executive narrative (5 lines max, plain English, name the top 3 production risks and the metric each threatens).
+2. Cross-cutting patterns (what the findings say together — e.g. missing defensive architecture, weak observability posture).
+3. Failure-mode walkthrough (pick the 2 most dangerous combinations and narrate the 3 AM incident they cause step by step).
+4. Fix sequencing rationale (order blockers-first; group fixes that ship together; S/M/L effort each).
+5. SLO fitness verdict-free assessment: what tier (99.99/99.9/99%) can this service realistically hold today and what changes that.
+Do not output a pass/fail verdict. Keep it under 600 words.`;
+  $("aiPrompt").style.display="block"; $("aiCopyBtn").style.display="inline-block";
+}
+
+async function saveAnalysis(){
+  const content=$("aiAnswer").value.trim();
+  if(!content){ toast("Paste the LLM answer first."); return; }
+  const res=await fetch(`/api/scan/${state.scanId}/analysis`,{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({content, source:$("aiSource").value})});
+  if(res.ok){ toast("Deep Analysis saved to scan #"+state.scanId); $("aiAnswer").value=""; loadAnalysis(); }
+  else toast("Save failed");
+}
+
+async function loadAnalysis(){
+  const a=await (await fetch(`/api/scan/${state.scanId}/analysis`)).json();
+  if(!$("aiSavedBody")) return;
+  $("aiSavedBody").innerHTML = a.exists
+    ? `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Saved ${a.ts.replace("T"," ").slice(0,16)} UTC · source: ${esc(a.source)}</div>
+       <div class="report-pre" style="max-height:420px">${esc(a.content)}</div>`
+    : `None yet for this scan.`;
+}
+
+
+/* ---------- knowledge base ---------- */
+let kb=[]; let kbCat="";
+function renderKB(){
+  const q=($("kbSearch").value||"").toLowerCase();
+  const cats=[...new Set(kb.map(e=>e.category))];
+  $("kbCats").innerHTML = [`<button class="chip ${kbCat===""?"on":""}" onclick="kbCat='';renderKB()">All · ${kb.length}</button>`]
+    .concat(cats.map(c=>`<button class="chip ${kbCat===c?"on":""}" onclick="kbCat='${c}';renderKB()">${esc(c)} · ${kb.filter(e=>e.category===c).length}</button>`)).join("");
+  const shown=kb.filter(e=>(!kbCat||e.category===kbCat)&&(!q||(e.title+" "+e.summary+" "+e.body).toLowerCase().includes(q)));
+  $("kbList").innerHTML = shown.map((e,i)=>`<div class="kb-card" id="kb${i}">
+      <button class="kb-h" onclick="document.getElementById('kb${i}').classList.toggle('open')">
+        <span class="rid">${e.id}</span>
+        <span style="flex:1"><b>${esc(e.title)}</b><span class="kbsum">${esc(e.summary)}</span></span>
+        <span class="tag">${esc(e.category)}</span>
+      </button>
+      <div class="kb-body"><pre>${esc(e.body)}</pre></div>
+    </div>`).join("") || `<div style="font-size:13px;color:var(--muted)">Nothing matches "${esc(q)}".</div>`;
+}
+
+/* ---------- landing ---------- */
+function renderLanding(){
+  $("heroStats").innerHTML = [
+    [catalog.rules.length,"scan rules"],
+    [Object.keys(catalog.pillars).length,"NFR pillars"],
+    [dict.length,"dictionary terms"],
+    [promptLib.length,"copilot prompts"],
+    [kb.length,"knowledge articles"],
+  ].map(([n,l])=>`<div class="hstat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
+  $("landingPillars").innerHTML = Object.entries(catalog.pillars).map(([k,p])=>`
+    <button class="pcard" onclick="state.lensPillar='${k}';renderLens();goto('lens')">
+      <div class="ph"><span class="pn">${esc(p.name)}</span><span class="tag">${catalog.rules.filter(r=>r.pillar===k).length} rules</span></div>
+      <div class="po">${esc(p.objective)}</div>
+    </button>`).join("");
+}
+
+
+/* ---------- topbar context + dashboard viz ---------- */
+const SEVHEX={blocker:"#B42318",high:"#DC6803",medium:"#B7911F",low:"#64748B"};
+function renderContext(){
+  if(state.scanId===null){
+    $("ctxPill").className="pill idle"; $("ctxPill").textContent="No scan";
+    $("ctxTitle").textContent="NFR Guardrail — Release Gate Console";
+    $("ctxSub").textContent="Register a repo or scan a local path to begin"; return;
+  }
+  const c={blocker:0,high:0,medium:0,low:0}; state.findings.forEach(f=>c[f.severity]++);
+  const cls=c.blocker?"review":(c.high?"watch":"steady");
+  const lbl=c.blocker?"Blockers open":(c.high?"High risks open":"Steady");
+  $("ctxPill").className="pill "+cls; $("ctxPill").textContent=lbl;
+  $("ctxTitle").textContent=`${state.repoName}  ⎇ ${state.branch||"-"}`;
+  $("ctxSub").textContent=`${state.findings.length} gaps · scan #${state.scanId}`;
+}
+function renderViz(){
+  const c={blocker:0,high:0,medium:0,low:0}; state.findings.forEach(f=>c[f.severity]++);
+  const tot=state.findings.length;
+  $("donutTotal").textContent=tot;
+  if(tot){
+    let acc=0; const stops=[];
+    SEVS.forEach(v=>{ if(c[v]){ const a2=acc+c[v]/tot*360; stops.push(`${SEVHEX[v]} ${acc}deg ${a2}deg`); acc=a2; } });
+    $("donut").style.background=`conic-gradient(${stops.join(",")})`;
+  } else $("donut").style.background="#E7F5EF";
+  $("donutLegend").innerHTML=SEVS.map(v=>`<div><i style="background:${SEVHEX[v]}"></i>${v} — <b style="font-family:var(--mono)">${c[v]}</b></div>`).join("");
+  // layer bars
+  const layers=["frontend","backend","database","infra"];
+  $("layerBars").innerHTML=layers.map(L=>{
+    const fs=state.findings.filter(f=>f.layer===L);
+    if(!fs.length) return `<div class="layerbar"><div class="lb-h"><b>${L}</b><span>clean ✓</span></div><div class="lb-track" style="background:#E7F5EF"></div></div>`;
+    const lc={blocker:0,high:0,medium:0,low:0}; fs.forEach(f=>lc[f.severity]++);
+    const segs=SEVS.filter(v=>lc[v]).map(v=>`<i style="background:${SEVHEX[v]};flex-grow:${lc[v]}"></i>`).join("");
+    return `<div class="layerbar"><div class="lb-h"><b>${L}</b><span>${fs.length}</span></div><div class="lb-track">${segs}</div></div>`;
+  }).join("");
+  // worst pillar
+  const byP={}; state.findings.forEach(f=>{(byP[f.pillar]=byP[f.pillar]||[]).push(f);});
+  const order={blocker:0,high:1,medium:2,low:3};
+  const worst=Object.entries(byP).sort((a,b)=>(b[1].length-a[1].length)||(order[a[1][0].severity]-order[b[1][0].severity]))[0];
+  $("worstPillar").innerHTML = worst
+    ? `<b>${esc((catalog.pillars[worst[0]]||{}).name||worst[0])}</b> carries the most gaps (${worst[1].length}).<br><span style="color:var(--muted)">${esc((catalog.pillars[worst[0]]||{}).sre_lens||"")}</span><br><button class="go" style="border:0;background:none;padding:0;color:var(--navy);font-weight:600;font-size:12px;cursor:pointer;margin-top:6px" onclick="state.lensPillar='${worst[0]}';renderLens();goto('lens')">Open this lens →</button>`
+    : `<span style="color:var(--ok);font-weight:600">All pillars clean ✓</span>`;
+}
+
+
+/* ---------- internal LLM direct generation (if configured) ---------- */
+let aiCfg={enabled:false};
+async function loadAICfg(){ try{ aiCfg=await (await fetch("/api/ai-config")).json(); }catch(e){} }
+async function genAI(){
+  if(!$("aiPrompt").value){ buildAIPrompt(); }
+  const btn=$("aiGenBtn"); btn.disabled=true; btn.textContent="Generating…";
+  try{
+    const res=await fetch(`/api/scan/${state.scanId}/ai-generate`,{method:"POST",
+      headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:$("aiPrompt").value})});
+    const out=await res.json();
+    if(!res.ok) throw new Error(out.detail||"Generation failed");
+    toast(`Deep Analysis generated (${out.chars} chars) and saved`); loadAnalysis();
+  }catch(e){ toast(e.message); }
+  finally{ btn.disabled=false; btn.innerHTML=`Generate via <span id="aiGenName">${esc(aiCfg.name||"internal LLM")}</span>`; }
+}
+
+init();
+function toggleAppForm(){ const f=$("appForm"); f.style.display = f.style.display==="none"?"flex":"none"; }
+async function populateDropdown(){
+  const apps = await (await fetch("/api/apps")).json();
+  const dd=$("appDropdown"); if(!dd) return; const prev=dd.value;
+  dd.innerHTML='<option value="">- Choose SEAL ID / App -</option>'
+    + apps.map(a=>`<option value="${a.id}">[${esc(a.seal_id)}] ${esc(a.app_name)}</option>`).join("");
+  if(prev) dd.value=prev;
+}
+function onAppSelect(){
+  const dd=$("appDropdown"), v=dd.value; if(!v) return;
+  document.querySelectorAll(".appcard").forEach(c=>{
+    const m = c.dataset.appid==v;
+    c.style.outline = m ? "2px solid var(--navy)" : "";
+    if(m) c.scrollIntoView({behavior:"smooth",block:"nearest"});
+  });
+}
+async function doLogout(){ await fetch("/api/auth/logout",{method:"POST"}); window.location.href="/login"; }
+async function initAuth(){
+  const d = await (await fetch("/api/auth/status")).json();
+  if(!d.authenticated) window.location.href="/login";
+}
+
+/* ---------- SRE runbooks ---------- */
+let _runbooks = [], _rbCat = "all";
+async function loadRunbooks(){
+  if(_runbooks.length){ renderRunbooks(); return; }
+  try{
+    const d = await (await fetch("/api/runbooks")).json();
+    _runbooks = d.runbooks || [];
+    const cats = ["all", ...new Set(_runbooks.map(r=>r.category))];
+    $("rbFilters").innerHTML = cats.map(c=>
+      `<button class="rb-chip ${c===_rbCat?"on":""}" onclick="filterRunbooks('${esc(c)}',this)">${c==="all"?"All runbooks":esc(c)}</button>`
+    ).join("") + `<span style="margin-left:auto;font-size:12px;color:var(--muted)">${_runbooks.length} runbooks</span>`;
+    renderRunbooks();
+  }catch(e){ $("rbList").innerHTML = '<div style="color:var(--blocker);font-size:13px">Could not load runbooks.</div>'; }
+}
+function filterRunbooks(cat, btn){
+  _rbCat = cat;
+  document.querySelectorAll(".rb-chip").forEach(b=>b.classList.remove("on"));
+  btn.classList.add("on"); renderRunbooks();
+}
+function rbL(items, tag){
+  if(!items || !items.length) return "";
+  return `<${tag}>` + items.map(i=>`<li>${esc(i)}</li>`).join("") + `</${tag}>`;
+}
+function renderRunbooks(){
+  const rows = _runbooks.filter(r=> _rbCat==="all" || r.category===_rbCat);
+  $("rbList").innerHTML = rows.map(r=>`
+    <div class="rbcard" id="rb_${r.id}">
+      <div class="rbhead" onclick="document.getElementById('rb_${r.id}').classList.toggle('open')">
+        <span class="rbchev">&#9656;</span>
+        <span class="rbid">${esc(r.id)}</span>
+        <span class="rbtitle">${esc(r.title)}</span>
+        <span class="rbcat">${esc(r.category)}</span>
+        <span class="sevb ${esc(r.severity)}">${esc(r.severity)}</span>
+      </div>
+      <div class="rbbody">
+        <div class="rbsum">${esc(r.summary)}</div>
+        ${r.symptoms&&r.symptoms.length?`<div class="rbsec sym"><h5>Symptoms</h5>${rbL(r.symptoms,"ul")}</div>`:""}
+        ${r.detection&&r.detection.length?`<div class="rbsec"><h5 style="color:var(--navy)">Detection signal</h5><div class="rbdet">${r.detection.map(d=>`<div><b>${esc(d.metric)}</b> &nbsp;-&gt;&nbsp; ${esc(d.threshold)}</div>`).join("")}</div></div>`:""}
+        ${r.immediate_actions&&r.immediate_actions.length?`<div class="rbsec act"><h5>Immediate actions</h5>${rbL(r.immediate_actions,"ol")}</div>`:""}
+        ${r.diagnosis&&r.diagnosis.length?`<div class="rbsec diag"><h5>Diagnosis</h5>${rbL(r.diagnosis,"ul")}</div>`:""}
+        ${r.resolution&&r.resolution.length?`<div class="rbsec res"><h5>Resolution</h5>${rbL(r.resolution,"ul")}</div>`:""}
+        ${r.escalation&&r.escalation.length?`<div class="rbsec esc"><h5>Escalation</h5>${rbL(r.escalation,"ul")}</div>`:""}
+        ${r.post_incident&&r.post_incident.length?`<div class="rbsec post"><h5>Post-incident</h5>${rbL(r.post_incident,"ul")}</div>`:""}
+        ${r.related_nfr&&r.related_nfr.length?`<div class="rbnfr">Prevented by NFR rules: ${r.related_nfr.map(x=>`<code>${esc(x)}</code>`).join("")}</div>`:""}
+      </div>
+    </div>`).join("") || '<div style="font-size:13px;color:var(--muted)">No runbooks in this category.</div>';
+}
+
+</script>
+</body>
+</html>

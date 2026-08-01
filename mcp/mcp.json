@@ -1,0 +1,10 @@
+{
+  "//": "Place this file at <workspace>/.vscode/mcp.json — VS Code 1.99+ / Copilot Agent mode picks it up automatically. Then ask Copilot Chat: 'Scan this repo for NFR gaps and explain the blockers'.",
+  "servers": {
+    "nfr-guardrail": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["${workspaceFolder}/nfr-guardrail-kit/mcp/nfr_mcp_server.py"]
+    }
+  }
+}

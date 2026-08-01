@@ -178,24 +178,54 @@ nfr-guardrail-kit/
 ├── vscode/
 
 commands to use -
- ls -la ~/Downloads/nfr-scanner-update.zip
+Get-ChildItem -Path $HOME\Downloads -Filter "*nfr*" -Directory
 
-cd ~/Downloads
-unzip -o nfr-scanner-update.zip -d nfr-scanner-update
-find nfr-scanner-update -type f
+cd $HOME\Downloads\NFR-GUARDRAIL-KIT-MAIN
+pwd
+Test-Path scanner\nfr_scan.py
 
-cd ~/Downloads/nfr-guardrail-kit-main
-cp -v ~/Downloads/nfr-scanner-update/scanner/nfr_scan.py scanner/
-cp -v ~/Downloads/nfr-scanner-update/scanner/semantic/*.py scanner/semantic/
-cp -v ~/Downloads/nfr-scanner-update/scanner/engines/*.py scanner/engines/
-cp -v ~/Downloads/nfr-scanner-update/skill/rules/nfr_rules.yaml skill/rules/
 
-python3 -c "import yaml; print('rules:', len(yaml.safe_load(open('skill/rules/nfr_rules.yaml'))['rules']))"
-ls -la scanner/semantic/exceptions.py scanner/engines/adapters.py
+Get-Item $HOME\Downloads\nfr-scanner-update.zip | Select-Object Name, Length, LastWriteTime
+
+Expand-Archive -Path $HOME\Downloads\nfr-scanner-update.zip -DestinationPath $HOME\Downloads\nfr-scanner-update -Force
+Get-ChildItem -Path $HOME\Downloads\nfr-scanner-update -Recurse -File | Select-Object FullName
+
+cd $HOME\Downloads\NFR-GUARDRAIL-KIT-MAIN
+
+Copy-Item $HOME\Downloads\nfr-scanner-update\scanner\nfr_scan.py -Destination scanner\ -Verbose
+Copy-Item $HOME\Downloads\nfr-scanner-update\scanner\semantic\*.py -Destination scanner\semantic\ -Verbose
+Copy-Item $HOME\Downloads\nfr-scanner-update\scanner\engines\*.py -Destination scanner\engines\ -Verbose
+Copy-Item $HOME\Downloads\nfr-scanner-update\skill\rules\nfr_rules.yaml -Destination skill\rules\ -Verbose
+
+python -c "import yaml; print('rules:', len(yaml.safe_load(open('skill/rules/nfr_rules.yaml'))['rules']))"
+Get-Item scanner\semantic\exceptions.py, scanner\engines\adapters.py | Select-Object Name, Length
 
 git add -A
 git commit -m "feat(scanner): exception/logging analyzer, span check, SCA/CVE scanning, Java complexity, engine adapters, backtracking fix, estate rules"
 git push origin main
 
-git ls-tree -r origin/main --name-only | grep -E "semantic|engines"
+git ls-tree -r origin/main --name-only | Select-String "semantic|engines"
+
+
+Get-ChildItem $HOME\Downloads\nfr-scanner-update -Recurse -File
+Get-Item scanner\semantic\exceptions.py, scanner\engines\adapters.py -ErrorAction SilentlyContinue
+git status
+
+git log -1 --stat
+
+
+git ls-tree -r origin/main --name-only | Select-String "semantic|engines"
+
+
+git clone --depth 1 https://github.com/spring-petclinic/spring-petclinic-microservices.git $HOME\Downloads\realsvc
+python scanner\nfr_scan.py $HOME\Downloads\realsvc --out $HOME\Downloads\smoke_out
+
+
+python -c "
+import json
+from collections import Counter
+d = json.load(open('$env:USERPROFILE/Downloads/smoke_out/findings.json'))['findings']
+print(len(d), 'findings')
+print('by family:', dict(Counter(x['rule_id'].split('-')[0] for x in d)))
+"
 

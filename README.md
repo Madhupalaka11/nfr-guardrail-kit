@@ -180,52 +180,96 @@ nfr-guardrail-kit/
 commands to use -
 Get-ChildItem -Path $HOME\Downloads -Filter "*nfr*" -Directory
 
-cd $HOME\Downloads\NFR-GUARDRAIL-KIT-MAIN
-pwd
-Test-Path scanner\nfr_scan.py
+@workspace I have a zip file at ~/Downloads/nfr-scanner-update containing updated
+scanner files. I need you to carefully merge these into my existing project
+WITHOUT disturbing or overwriting anything else in my codebase.
+
+Rules:
+1. First, list every file inside ~/Downloads/nfr-scanner-update
+2. For each file, check if it already exists in my project at the same relative path
+3. If it's a NEW file (doesn't exist yet) — create it exactly as-is, no changes
+4. If it ALREADY EXISTS — show me a diff between my current version and the new
+   one BEFORE changing anything. Do not overwrite until I confirm.
+5. Do NOT touch, delete, or modify any file that is not part of this update —
+   my UI, console, reports, runbooks, and knowledge base files must stay
+   completely untouched.
+6. After every file is placed, run: python -m py_compile on every .py file
+   that was added or changed, and confirm the rule count in
+   skill/rules/nfr_rules.yaml equals 40.
+7. Report back a summary: files created, files replaced, files skipped, and
+   the verification results. Do not commit anything yet — wait for my
+   confirmation.
+
+8. Now commit these changes with an appropriate message and push to origin main.
+
+9. @workspace Run: git status --porcelain
+
+For every file listed as modified or deleted, check whether it's one of these:
+scanner/nfr_scan.py, scanner/semantic/*.py, scanner/engines/*.py,
+skill/rules/nfr_rules.yaml
+
+If ANY other file shows as changed or deleted, stop and show me exactly what
+changed in it before I go further. My console, reports, runbooks, and
+knowledge base must show zero changes.
 
 
-Get-Item $HOME\Downloads\nfr-scanner-update.zip | Select-Object Name, Length, LastWriteTime
+10.@workspace For each of these files, show me the first 5 lines and the total
+line count:
+scanner/semantic/exceptions.py
+scanner/semantic/k8s.py
+scanner/semantic/observability.py
+scanner/semantic/report_model.py
+scanner/engines/adapters.py
 
-Expand-Archive -Path $HOME\Downloads\nfr-scanner-update.zip -DestinationPath $HOME\Downloads\nfr-scanner-update -Force
-Get-ChildItem -Path $HOME\Downloads\nfr-scanner-update -Recurse -File | Select-Object FullName
+Compare against these expected line counts (approximate, within 20 lines is fine):
+exceptions.py ~387, k8s.py ~322, observability.py ~381, report_model.py ~348,
+adapters.py ~430
 
-cd $HOME\Downloads\NFR-GUARDRAIL-KIT-MAIN
-
-Copy-Item $HOME\Downloads\nfr-scanner-update\scanner\nfr_scan.py -Destination scanner\ -Verbose
-Copy-Item $HOME\Downloads\nfr-scanner-update\scanner\semantic\*.py -Destination scanner\semantic\ -Verbose
-Copy-Item $HOME\Downloads\nfr-scanner-update\scanner\engines\*.py -Destination scanner\engines\ -Verbose
-Copy-Item $HOME\Downloads\nfr-scanner-update\skill\rules\nfr_rules.yaml -Destination skill\rules\ -Verbose
-
-python -c "import yaml; print('rules:', len(yaml.safe_load(open('skill/rules/nfr_rules.yaml'))['rules']))"
-Get-Item scanner\semantic\exceptions.py, scanner\engines\adapters.py | Select-Object Name, Length
-
-git add -A
-git commit -m "feat(scanner): exception/logging analyzer, span check, SCA/CVE scanning, Java complexity, engine adapters, backtracking fix, estate rules"
-git push origin main
-
-git ls-tree -r origin/main --name-only | Select-String "semantic|engines"
+Flag any file that's significantly shorter than expected — that usually means
+a truncated copy.
 
 
-Get-ChildItem $HOME\Downloads\nfr-scanner-update -Recurse -File
-Get-Item scanner\semantic\exceptions.py, scanner\engines\adapters.py -ErrorAction SilentlyContinue
-git status
-
-git log -1 --stat
-
-
-git ls-tree -r origin/main --name-only | Select-String "semantic|engines"
-
-
-git clone --depth 1 https://github.com/spring-petclinic/spring-petclinic-microservices.git $HOME\Downloads\realsvc
-python scanner\nfr_scan.py $HOME\Downloads\realsvc --out $HOME\Downloads\smoke_out
-
+11. @workspace Run this exact test to prove the exception analyzer genuinely works,
+not just that the file exists:
 
 python -c "
-import json
-from collections import Counter
-d = json.load(open('$env:USERPROFILE/Downloads/smoke_out/findings.json'))['findings']
-print(len(d), 'findings')
-print('by family:', dict(Counter(x['rule_id'].split('-')[0] for x in d)))
+import sys; sys.path.insert(0,'scanner')
+from semantic import source, exceptions
+
+code = '''
+public class T {
+    public void bad() { try { risky(); } catch (Exception e) { } }
+}
+'''
+with open('_tmp_test.java','w') as f: f.write(code)
+import pathlib
+s = source.load(pathlib.Path('_tmp_test.java'))
+findings = exceptions.analyse(s)
+print(f'{len(findings)} finding(s) — expect 1 (empty catch block, blocker severity)')
+if findings: print(findings[0]['rule_id'], findings[0]['severity'])
 "
 
+Then delete _tmp_test.java. Report the exact output.
+
+
+12. @workspace Run:
+python -c "
+import yaml
+r = yaml.safe_load(open('skill/rules/nfr_rules.yaml'))['rules']
+print('total:', len(r))
+new_ids = ['REL-DB-010','PERF-DB-010','PERF-DB-011','AVL-INF-020','GOV-ALL-001','GOV-ALL-002']
+found = [x['id'] for x in r if x['id'] in new_ids]
+print('estate rules present:', found)
+"
+
+Expect total: 40, and all 6 IDs listed as present.
+
+
+13. @workspace Summarise:
+1. Which files were created (should be new, zero prior version)
+2. Which files were replaced (should be exactly 2: nfr_scan.py and nfr_rules.yaml)
+3. The output of the exception-analyzer test above
+4. The output of the rule-count check above
+5. Confirm git status shows ONLY these files as changed, nothing else
+
+Do not commit yet. Wait for my explicit go-ahead.
